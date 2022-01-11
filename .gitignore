@@ -1,0 +1,7 @@
+## ignoring large files
+
+*.csv
+*.fastq.gz
+data/raw_data/*
+data/processed_data/*
+*.DS_Store

@@ -8,7 +8,7 @@ ROOT=${PWD}
 READS1=$ROOT/data/raw_data/$NGS_RUN
 LOOP=$(basename -a $READS1/*_R1_*)
 
-module load bioinfo-tools
+# module load bioinfo-tools
 
 mkdir -p $ROOT/data/processed_data/$NGS_RUN/$DATABASE
 

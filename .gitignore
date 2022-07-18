@@ -2,7 +2,7 @@
 
 *.csv
 *.fastq.gz
-data/raw_data/*
-data/processed_data/*
+data/*
 *.DS_Store
 .snakemake/*
+results/*

@@ -1,0 +1,187 @@
+---
+title: "Bioinformatics processing: Multivalent Antigen Display on Nanoparticles Elicits Diverse and Broad B cell Responses"
+author: "Rodrigo Arcoverde Cerveira"
+date: '`r format(Sys.Date(), "%Y-%m-%d")`'
+output: html_document
+abstract: Here you can find how the processing was performed for the paper entitled "Multivalent Antigen Display on Nanoparticles Elicits Diverse and Broad B cell Responses"
+knit: (function(inputFile, encoding) {
+          rmarkdown::render(inputFile,
+                            encoding = encoding, 
+                            output_file = paste0(
+                              xfun::sans_ext(inputFile), '_', Sys.Date(), '.html'),
+                                output_dir = "../results/lab_book/")})
+---
+
+```{r setup, include=FALSE}
+knitr::opts_knit$set(
+  echo = TRUE,
+  root.dir = getwd(),
+  fig.width = 6, fig.height = 5,
+  warning = FALSE,
+  message = FALSE
+)
+
+result.dir <- paste0("results/", Sys.Date(), "/")
+
+## creates result.dir with date in if not existent
+ifelse(isFALSE(dir.exists(paste0("../", result.dir))), dir.create(paste0("../", result.dir), recursive = TRUE), "Result directory for today exists already!")
+options(stringsAsFactors = FALSE)
+```
+
+## Abstract
+
+
+
+## Needed libraries
+```{r libraries, message=FALSE}
+library(data.table)
+library(dplyr)
+library(vegan)
+library(ggplot2)
+library(scales)
+library(ggprism)
+```
+
+## Load data
+```{r message=FALSE, warning=FALSE}
+# clonotypes file processed after igdiscover gene assignment, combining outputs from all samples, and running clonotype module with traditional clonotype definition (aka same HV and HJ, same HCDR3 length, 80% aa similarities, and at least junction nucleotide the same)
+
+clonotype_full <- fread("../data/processed_data/filtered_tsv/individualized/clonotypes_full.txt.gz", sep = "\t", quote = FALSE, header = TRUE, verbose = TRUE, nThread = 8, fill = TRUE)
+
+
+
+## specificity for all antigen-specific single-cells from FACS-sorting
+query_ref <- read.csv("../data/specificity/fsc_combined_processed_specificity.csv") %>%
+  na.omit() %>%
+  dplyr::rename(
+    name = file_ID,
+    specificity_full = specificity
+  ) %>%
+  mutate(specificity = gsub("\\d+", "", specificity_full))
+```
+
+## Processing data
+
+```{r data_wrangling}
+
+# create clonotype groups for all the sequences based on the IgDiscover clonotype module output
+# creating a grp variable based on the empty rows, which are the separation between different clones from the igdiscover output
+clonotype_full_fixed <- clonotype_full %>%
+  mutate(
+    grp = cumsum(is.na(CDR3_length)),
+    name = gsub(".filtered.tsv.gz|sc_cirelli.tsv.gz_|cirelli_filtered.tsv.gz_|sc_IMGTrm.tsv.gz_|IMGTrm_filtered.tsv.gz_|nestor-rm_filtered.tsv.gz_|sc_nestor-rm.tsv.gz_|sc_|", "", sequence_id),
+    name = gsub("_H010", "_H10", name),
+    name = ifelse(duplicated(name) & grepl("E17_merged-B2-igg_consensus", name), paste0(name, "_2"), name)
+  ) %>%
+  tidyr::drop_na(count) %>%
+  dplyr::relocate(grp) %>%
+  mutate(
+    ID = substr(name, 1, 3),
+    new_name = ifelse(nchar(name) > 0 & nchar(name) <= 10, paste0("sc_", name), name),
+    timepoint = ifelse(grepl("-B1-", new_name), "B1",
+      ifelse(grepl("-B2-", new_name), "B2",
+        ifelse(grepl("igm", new_name), "PV",
+          ifelse(grepl("^sc", new_name), "Single-cell", "")
+        )
+      )
+    ),
+    ID_timepoint = paste(ID, timepoint, sep = "_")
+  ) %>%
+  distinct(new_name, .keep_all = TRUE)
+
+# remove large object that consumes memory
+rm(clonotype_full)
+gc()
+
+# loop to save clonotype full  files and clonotype summary files
+filtered_animal <- list()
+clonotype_summary <- list()
+
+for (animals in unique(clonotype_full_fixed$ID_timepoint)) {
+  ## save full clonotype files
+  filtered_animal[[animals]] <- clonotype_full_fixed %>%
+    filter(ID_timepoint == animals) %>%
+    as.data.frame()
+
+  #  write.csv(filtered_animal[[animals]], paste0("../", result.dir, animals,"_clonotype_full.csv"), row.names = FALSE)
+
+  ## save summary files
+  clonotype_summary[[animals]] <- filtered_animal[[animals]] %>%
+    group_by(grp, timepoint, ID, ID_timepoint) %>%
+    summarise(clonal_size = n(), first(v_call), first(j_call), first(cdr3_aa)) %>%
+    arrange(desc(clonal_size)) %>%
+    ungroup()
+
+  #  write.csv(clonotype_summary[[animals]], paste0("../", result.dir, animals,"_clonotype_summary.csv"), row.names = FALSE)
+}
+
+to_recon <- data.table::rbindlist(clonotype_summary) %>%
+  select(clonal_size, ID_timepoint) %>%
+  group_by(clonal_size, ID_timepoint) %>%
+  summarise(size = n())
+
+
+for (i in unique(to_recon$ID_timepoint)) {
+  to_recon_table <- to_recon %>%
+    filter(ID_timepoint == i) %>%
+    select(clonal_size, size)
+
+  # fwrite(to_recon_table, file = paste0("../",result.dir,i,"_file_to_recon.txt"), append = FALSE,sep = "\t", row.names = FALSE, col.names = FALSE)
+}
+
+# remove large object that consumes memory
+rm(filtered_animal)
+gc()
+```
+
+```{r antigen-specific_clones}
+
+clonotype_rsv <- clonotype_full_fixed %>%
+  # add from which single-cell clonotype each clone from the rep-seq is coming from and removing empty rows
+  group_by(grp) %>%
+  mutate(
+    intermediate_name = ifelse(grepl("^sc_", new_name), new_name, ""),
+    sc_clone_grp = ifelse(any(timepoint == "Single-cell"), paste0(intermediate_name, collapse = ", "), ""),
+    sc_clone_grp = sub(", , .*", "", sc_clone_grp)
+  ) %>%
+  ungroup() %>%
+  select(-intermediate_name) %>%
+  relocate(sc_clone_grp, grp, new_name, ID_timepoint, ID, timepoint) %>%
+  filter(sc_clone_grp != "")
+
+
+
+## Code for saving and adjusting sequences from the same clonotype but classified as different specificities. For example, clone group 1, has a both a DP sequence and a PreF/PostF sequence inside, the DP sequence will be the priority.
+
+clonotype_rsv <- left_join(clonotype_rsv, query_ref, by = "name") %>%
+  group_by(grp) %>%
+  mutate(specificity_group = case_when(
+    any(grepl("DP", specificity)) ~ "DP",
+    any(grepl("PreF", specificity)) ~ "PreF",
+    any(grepl("PostF", specificity)) ~ "PostF"
+  )) %>%
+  ungroup() %>%
+  relocate(specificity_group)
+
+```
+
+## Save intermediate files with only antigen-specific clones and processed columns
+
+```{r saving_data_rds}
+
+saveRDS(clonotype_full_fixed, paste0("../data/clonotypes/individualized/processed_clonotypes.rds"))
+
+saveRDS(clonotype_rsv, paste0("../data/clonotypes/individualized/rsv-specific_clonotypes.rds"))
+
+```
+
+## Take environment snapshot 
+```{r}
+renv::snapshot()
+```
+
+
+## SessionInfo
+```{r}
+sessionInfo()
+```

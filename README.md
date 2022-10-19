@@ -18,7 +18,8 @@ as a promising avenue for enhancing B cell responses to protein subunit vaccines
 ## Repo description
 - The raw data is available in NCBI BioProject: PRJNA888955
 - Here you have access only to the source code used, the code will automatically download the processed data from the zenodo repository. 
-- The main scripts are rsv_clonotype_processing.Rmd and rsv_clonotype_analysis.Rmd, the first one is aimed into more computationally intensive processing while the second contain the code for plotting and analysis that were used in the figures mentioned above.
+- The main scripts are under `src folder` as `rsv_clonotype_processing.Rmd` and `rsv_clonotype_analysis.Rmd`, the first one is aimed into more computationally intensive processing while the second contain the code for plotting and analysis that were used in the figures mentioned above.
+- Some small data can be found in this repo, the databases (V, D, and J genes) from different authors.
 
 ## Reproducibility
 - All the bioinformatics analysis performed by Rodrigo Arcoverde can be reproduced through snakemake

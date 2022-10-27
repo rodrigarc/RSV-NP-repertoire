@@ -8,3 +8,4 @@ data/*
 results/*
 src/.Rhistory
 doc/*
+.Rproj.user

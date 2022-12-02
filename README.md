@@ -1,6 +1,7 @@
 # Multivalent Antigen Display on Nanoparticles Diversifies B Cell Responses
 
-#### Sebastian Ols, Klara Lenart, Rodrigo Arcoverde Cerveira, Rebecca Skotheim, Annika Philomin, Jana Kochmann, Martin Corcoran, Alberto Cagigi, Natalie Brunette, Brooke Fiala, Samuel Wrenn, Jessica Marcandalli, Fredrika Hellgren, Elizabeth A. Thompson, Ang Lin, Ganesh E. Phad, Barney S. Graham, Laurent Perez, Andrew J. Borst, Gunilla B. Karlsson Hedestam, Tracy J. Ruckwardt, Neil P. King and Karin Loré
+#### Sebastian Ols, Klara Lenart*, Rodrigo Arcoverde Cerveira*, Rebecca Skotheim, Annika Philomin, Jana Kochmann, Martin Corcoran, Alberto Cagigi, Natalie Brunette, Brooke Fiala, Samuel Wrenn, Jessica Marcandalli, Fredrika Hellgren, Elizabeth A. Thompson, Ang Lin, Ganesh E. Phad, Barney S. Graham, Laurent Perez, Andrew J. Borst, Gunilla B. Karlsson Hedestam, Tracy J. Ruckwardt, Neil P. King and Karin Loré
+*equal contribution
 
 ## Table of contents
 * [Abstract](#abstract)

@@ -5,13 +5,17 @@ date: '`r format(Sys.Date(), "%Y-%m-%d")`'
 output: 
  html_document:
     toc: true
-    theme: united
-abstract: Here you can find how the processing and plotting was performed for the paper entitled "Multivalent Antigen Display on Nanoparticles Elicits Diverse and Broad B cell Responses"
+    depth: 2
+    toc_float: true
+    number_sections: true
+ github_document:
+    preview_html: false
+abstract: Here you can find how the processing and plotting related to our B cell receptor clonotype analysis was performed for the paper entitled "Multivalent Antigen Display on Nanoparticles Elicits Diverse and Broad B cell Responses"
 knit: (function(inputFile, encoding) {
           rmarkdown::render(inputFile,
                             encoding = encoding, 
                             output_file = paste0(
-                              xfun::sans_ext(inputFile), '_', Sys.Date(), '.html'),
+                              xfun::sans_ext(inputFile), '_', '.html'),
                                 output_dir = "../results/lab_book/")})
 ---
 
@@ -31,20 +35,21 @@ knitr::opts_chunk$set(
 
 result.dir <- paste0("results/", Sys.Date(), "/")
 
-## creates result.dir with date in if not existent
+# creates result.dir with date in if not existent
 ifelse(isFALSE(dir.exists(paste0("../", result.dir))), dir.create(paste0("../", result.dir), recursive = TRUE), "Result directory for today exists already!")
 options(stringsAsFactors = FALSE)
 ```
 
-## Abstract
+# Abstract
 
 This `Rmarkdown` provides the analysis for the processed data in the paper entitled "Multivalent Antigen Display on Nanoparticles Diversifies B Cell Responses". It includes the B cell receptors analysis, plots, and generation of intermediate files for plotting using other programs. The processed files used here are AIRR-compliant datasets which are automatically downloaded from Zenodo (DOI: 00000000), they are either Human Respiratory Syncytial Virus-specific (RSV-specific) or the full bulk repertoire from the vaccinated non-human primates (*Macaca mulatta*).
 
-## Needed libraries
+# Needed libraries
 
 Loaded libraries need to be present, the `snakemake` command will try to install them in the conda environment
 
 ```{r libraries, message=FALSE}
+library(tidyr)
 library(treeio)
 library(ggtree)
 library(Biostrings)
@@ -57,7 +62,7 @@ library(dplyr)
 source("df_to_fasta.R")
 ```
 
-## Load data
+# Load data
 
 Data format here is in `.rds` format, but it can also be found in `.tsv` at Zenodo (DOI: 000000000)
 
@@ -74,7 +79,7 @@ clonotype_rsv <- clonotype_rsv %>%
          d_call = D_gene) 
 ```
 
-## Generate processed files for diversity index estimation
+# Generate processed files for diversity index estimation
 
 Intermediate files are commented out, so it will not save all of them. One could uncomment them if all the intermediate files are needed. Intermediate files were used to run `Recon (v2.5)` (Kaplinsky & Arnaout, *Nat Commmun*, 2016) according to default parameters, more about running Recon will is described in the section [Recon estimates for RSV-specific diversity].
 
@@ -89,13 +94,13 @@ clonotype_summary_rsv <- list()
 
 # loop to create summary and full clonotype files for saving and/or following analysis
 for (animals in unique(clonotype_rsv$ID_timepoint_spec)) {
-  ## save full clonotype files
+  # save full clonotype files
   filtered_animal_rsv[[animals]] <- clonotype_rsv %>%
     filter(ID_timepoint_spec == animals) %>%
     as.data.frame()
  # write.csv(filtered_animal_rsv[[animals]], paste0("../", result.dir, animals, "_clonotype_full.csv"), row.names = FALSE)
 
-  ## save summary files
+  # save summary files
   clonotype_summary_rsv[[animals]] <- filtered_animal_rsv[[animals]] %>%
     group_by(grp, timepoint, ID, specificity_group, ID_timepoint_spec) %>%
     summarise(clonal_size = n(), first(v_call), first(j_call), first(cdr3_aa)) %>%
@@ -153,9 +158,9 @@ for (i in unique(to_recon_rsv$ID_timepoint_spec)) {
 }
 ```
 
-## Calculating Species richness
+# Calculating Species richness
 
-### Chao1 estimates for RSV-specific diversity
+## Chao1 estimates for RSV-specific diversity
 
 Species richness (Chao1) was calculated using the `vegan` r package. The samples were first subsampled 100 times for each animal/timepoint and then the species richness was estimated. The mean of those 100x replicates were used for plotting.
 
@@ -192,7 +197,7 @@ change_names <- function(x) {
   x
 }
 
-## adjusted dataset for plotting
+# adjusted dataset for plotting
 {
   chao_results_df <- purrr::map(chao_list_results, ~ change_names(.x))
   chao_results_df <- rbindlist(chao_results_df, use.names = TRUE, idcol = TRUE, fill = TRUE)
@@ -225,7 +230,7 @@ change_names <- function(x) {
 }
 ```
 
-### Chao1 plotting between groups for RSV-specific diversity
+## Chao1 plotting between groups for RSV-specific diversity
 
 Here is the plotting and comparison between vaccinated group:
 
@@ -254,8 +259,10 @@ chao_results_df %>%
     Group_specificity = factor(Group_specificity, levels = c("Total_B1_20-mer", "Total_B1_1-mer", "Total_B2_20-mer", "Total_B2_1-mer", "PreF_B1_20-mer", "PreF_B1_1-mer", "PreF_B2_20-mer", "PreF_B2_1-mer", "DP_B1_20-mer", "DP_B1_1-mer", "DP_B2_20-mer", "DP_B2_1-mer"))) %>%
   group_by(ID, Group, Timepoint, Specificity, algorithm, Group_specificity) %>%
   summarise(value = mean(value)) %>%
+  tidyr::drop_na() %>%
  ggplot(aes(x = Group_specificity, y = value, fill = Group_specificity, group = Group_specificity)) +
-    geom_violin(trim = FALSE) +
+    geom_violin(trim=FALSE, fill = "white", color = "black") +
+    geom_point(shape = 21, size = 5, position = position_jitter(width = .1)) +
     geom_vline(xintercept = seq(2.5,12,2), linetype = "dotted") +
     scale_y_continuous(expand = c(0, 0)) +
     scale_x_discrete(expand = c(0, 0)) +
@@ -269,7 +276,7 @@ chao_results_df %>%
 ggsave(paste0("../", result.dir, "chao1_species_richness.pdf"), width = 5, height = 3)
 ```
 
-### Recon estimates for RSV-specific diversity
+## Recon estimates for RSV-specific diversity
 
 According to `Recon` default settings and tutorial (check Recon manual), the count files generated previously were used to create the `fitfiles.txt` that were used as an input for generating the `diversity_table.txt` for all the samples.
 
@@ -285,7 +292,7 @@ python recon_v2.5.py -x --x_max 30 -o ${FILE}_plotfile.txt -b error_bar_paramete
 
 Then, each fit file was used for generating the `diversity_table.txt` with the command:
 
-```{r, engine = 'python', eval = FALSE}
+```{r, eval = FALSE}
 python recon_v2.5.py -v -D -b error_bar_parameters.txt -o output_diversity_table.txt *rsv_file_to_recon.txt_fitfile.txt
 ```
 
@@ -310,7 +317,8 @@ recon_res <- read.table("../results/2022-08-08/rsv_output_diversity_table.txt", 
   
 recon_res %>%
   ggplot(aes(x = Group_specificity, y = est_0.0D, fill = Group_specificity, group = Group_specificity)) +
-    geom_violin(trim = FALSE) +
+    geom_violin(trim=FALSE, fill = "white", color = "black") +
+    geom_point(shape = 21, size = 5, position = position_jitter(width = .1)) +
     geom_vline(xintercept = seq(2.5,12,2), linetype = "dotted") +
     scale_y_continuous(expand = c(0, 0)) +
     scale_x_discrete(expand = c(0, 0)) +
@@ -324,14 +332,15 @@ recon_res %>%
 ggsave(paste0("../", result.dir, "recon_species_richness.pdf"), width = 5, height = 3)
 ```
 
-### Simpsons diversity (Recon)
+## Simpsons diversity (Recon)
 
 `Recon` program 
 
 ```{r}
 recon_res %>%
   ggplot(aes(x = Group_specificity, y = est_2.0D, fill = Group_specificity, group = Group_specificity)) +
-    geom_violin(trim = FALSE) +
+    geom_violin(trim=FALSE, fill = "white", color = "black") +
+    geom_point(shape = 21, size = 5, position = position_jitter(width = .1)) +
     geom_vline(xintercept = seq(2.5,12,2), linetype = "dotted") +
     scale_y_continuous(expand = c(0, 0)) +
     scale_x_discrete(expand = c(0, 0)) +
@@ -344,9 +353,9 @@ recon_res %>%
 
 ggsave(paste0("../", result.dir, "recon_simpson_index.pdf"), width = 5, height = 3)
 ```
-## Comparing repertoires
+# Comparing repertoires
 
-### Calculating average SHM per database
+## Calculating average SHM per database
 
 ```{r shm_avg_dbs_processing}
 
@@ -393,7 +402,7 @@ rds_merge_stat
 fwrite(rds_merge_stat, paste0("../", result.dir, "merged_databases_shm.csv"), row.names = FALSE, sep = ",")
 ```
 
-### Plot number of sequences per animal
+## Plot number of sequences per animal
 
 ```{r sequencing_depth, eval=FALSE}
 full_rep_indiv <- readRDS("../data/clonotypes/individualized/processed_clonotypes.rds")
@@ -423,7 +432,7 @@ ggsave(paste0("../", result.dir, "repertoire_depth.pdf"), width = 7, height = 5)
 
 ```
 
-### Plot clone size per animal per database
+## Plot clone size per animal per database
 
 ```{r plot_and_saving}
 
@@ -463,7 +472,7 @@ rds_summary %>%
 
 ```
 
-### Correlation clone size per animal per database
+## Correlation clone size per animal per database
 
 ```{r correlation_clone}
 df_all <- data.frame()
@@ -520,7 +529,7 @@ df_all %>%
 ggsave(paste0("../", result.dir, "individualized_db_comparison.pdf"), width = 12, height = 6)
 ```
 
-### IGHV-J pairing per database
+## IGHV-J pairing per database
 
 ```{r}
 for(i in c("Individualized", "KIMDB")){
@@ -559,7 +568,7 @@ ggsave(paste0("../", result.dir,i,"_IGHV-IGHJ_pairing-rsv-specific-sequences_per
 }
 ```
 
-### IGHV-HJ pairing LOR mabs
+## IGHV-HJ pairing LOR mabs
 
 ```{r lor_mabs}
 lor_mabs <- read.csv("../data/specificity/LOR_single-cells_characterized.csv")
@@ -609,7 +618,7 @@ ggplot(aes(x = clonal_rank_B2, y = clonal_size_B2, color = substr(name,1,3))) +
 ggsave(paste0("../", result.dir, "clonal_size_vs_clonal_rank.pdf"), width = 7, height = 5)
 ```
 
-### Count unique V-J pairs
+## Count unique V-J pairs
 
 ```{r count_unique}
 rds_summary_noPV <- rds_summary %>%
@@ -642,7 +651,7 @@ rds_summary_noPV %>%
 ggsave(paste0("../", result.dir, "v-j-pair_count.pdf"), width = 5, height = 3)
 ```
 
-### VennDiagram of HV-HJ sharing
+## VennDiagram of HV-HJ sharing
 
 ```{r ven_diagram}
 
@@ -672,7 +681,7 @@ ggsave(paste0("../", result.dir,"shared-unique-v-j_pairing.pdf"), height = 7, wi
 
 ```
 
-### Plot selected LORs with individualized database
+## Plot selected LORs with individualized database
 
 ```{r indv_lors_plot}
 rds_indiv <- rds_summary %>%
@@ -702,7 +711,7 @@ rds_indiv <- rds_indiv %>%
 
 ```
 
-### Clone size area plot (cumulative) of 20-mer and 1-mer, divided by specificity (DP & PreF)
+## Clone size area plot (cumulative) of 20-mer and 1-mer, divided by specificity (DP & PreF)
 
 ```{r cumulative_plot}
 NP_cum_test <- rds_indiv %>%
@@ -751,7 +760,7 @@ rds_indiv %>%
 ggsave(paste0("../", result.dir, "rsv_specific_clonal_size_area_plot_spec.pdf"), width = 8, height = 2)
 ```
 
-### Plot SHM over time for individualized database divided by 20-mer and 1-mer, and specificities
+## Plot SHM over time for individualized database divided by 20-mer and 1-mer, and specificities
 
 ```{r SHM_group}
 rds_indiv_total <- rds_indiv %>%
@@ -782,7 +791,7 @@ rds_indiv %>%
 ggsave(paste0("../", result.dir, "rsv_specific_SHM_per_group.pdf"), width = 8, height = 4)
 ```
 
-### Plot HCDR3 length over time for individualized database divided by 20-mer and 1-mer, and specificities
+## Plot HCDR3 length over time for individualized database divided by 20-mer and 1-mer, and specificities
 
 ```{r cdr3_group}
 
@@ -806,9 +815,9 @@ rds_indiv %>%
 ggsave(paste0("../", result.dir, "rsv_specific_CDR3_length.pdf"), width = 6, height = 3)
 ```
 
-## Comparison of discovered alleles (individualized database)
+# Comparison of discovered alleles (individualized database)
 
-### Plot V alleles unique and shared per animal, stacked plot
+## Plot V alleles unique and shared per animal, stacked plot
 
 ```{r alelle_comparison}
 ls <- list.files("../data/databases/individualized", recursive = T, full.names = T, pattern = "V.fasta")
@@ -855,7 +864,7 @@ unique_v_indiv %>%
 ggsave(paste0("../", result.dir, "unique_and_shared_alleles.pdf"), width = 8, height = 6.38)
 ```
 
-### Plot V alleles validated or not per animal, stacked plot
+## Plot V alleles validated or not per animal, stacked plot
 
 ```{r validated_kimdb}
 
@@ -899,9 +908,9 @@ kimdb_v_indiv %>%
 ggsave(paste0("../", result.dir, "indiv_validated_KIMDB_alleles.pdf"), width = 8, height = 6.38)
 ```
 
-## Phylogenetic tree LOR21 and LOR24
+# Phylogenetic tree LOR21 and LOR24
 
-### Processing data
+## Processing data
 
 ```{r }
 clonal_tree_data <- clonotype_rsv %>%
@@ -928,9 +937,9 @@ clono_light_chains <- read.table("../data/clonotypes/light_chain_assigned_clonot
          j_call = sub("\\.", "*", j_call))
 ```
 
-### Generating fasta files for tree plotting
+## Generating fasta files for tree plotting
 
-### Heavy chain
+## Heavy chain
 
 ```{r fasta_heavy_chain}
 
@@ -969,7 +978,7 @@ for(i in seq_along(mabs_of_interests)){
             row.names = FALSE)
   }
   #deduplicating sequences
-  fasta <- unique(df_to_fasta(sequence_strings = filtered$VDJ_nt, sequence_name = gsub(":", "_",filtered$new_name, save_fasta = FALSE)))
+  fasta <- unique(df_to_fasta(sequence_strings = filtered$VDJ_nt, sequence_name = gsub(":", "_",filtered$new_name), save_fasta = FALSE))
   
   #adding single cell sequences
   sc_seqs <- filtered[!duplicated(filtered[,c('sc_clone_grp','VDJ_nt')]),]
@@ -980,7 +989,7 @@ for(i in seq_along(mabs_of_interests)){
     }else{
     sc_seq_count[[mab_name]] <- filtered %>% group_by(VDJ_nt) %>% summarise(duplicated = n(), name = gsub(":", "_",name))
     }
-    sc_seqs <- df_to_fasta(sequence_strings = sc_seqs$VDJ_nt, sequence_name = gsub(":", "_",sc_seqs$new_name))
+    sc_seqs <- df_to_fasta(sequence_strings = sc_seqs$VDJ_nt, sequence_name = gsub(":", "_",sc_seqs$new_name), save_fasta = FALSE)
   
   fasta <- c(fasta, sc_seqs, UCA)
   fasta <- fasta[unique(names(fasta))]
@@ -995,14 +1004,14 @@ for(i in seq_along(mabs_of_interests)){
 
 ```
 
-### Light chain
+## Light chain
 
 ```{r fasta_light_chain}
 
 
 ```
 
-### Run MUSCLE on bash
+## Run MUSCLE on bash
 
 Do a Multiple Sequence Alignment using `MUSCLE` (v 3.8.1551) for all the fasta files generated through out this analysis. Following that, run `FastTree` (v 2.1.10) for all the aligned sequences and save tree output to be plotted on the following code.
 
@@ -1017,12 +1026,12 @@ for f in *.aln; do fasttree -nt -gtr $f > $f.tre; done
 
 ```
 
-### Reading and plotting trees
+## Reading and plotting trees
 
 Generated trees arre edited using `treeio` and plotted with `ggtree`. The trees were rerooted to their respectives Unmutated Common Ancestor (UCA), which in this case is defined as just the V and J gene germlines combined. The gap between V-J is inserted automatically by the alignment method, thus the CDR3 here is not considered for the UCA.
 
 ```{r plot_trees}
-## function to root tree in UCA 
+# function to root tree in UCA 
 .to_root_uca <- function(x){
 root(x,which(grepl("UCA",x[["tip.label"]])))
 }
@@ -1082,7 +1091,7 @@ for(i in seq_along(plots)){
 
 ```
 
-## Heatmap of competition between LOR mAbs
+# Heatmap of competition between LOR mAbs
 
 LOR mAbs had a diverse competition profiles against different standardized mAbs while binding to PostF and PreF RSV fusion proteins. 
 
@@ -1111,13 +1120,13 @@ to_remove <- c("EC50_SCDM","EC50_postF","EC50_MPV", "EC50_preF","surface_binding
 
 ```
 
-## Take environment snapshot
+# Take environment snapshot
 
-```{r}
+```{r, eval = FALSE}
 renv::snapshot()
 ```
 
-## SessionInfo
+# SessionInfo
 
 ```{r}
 sessionInfo()

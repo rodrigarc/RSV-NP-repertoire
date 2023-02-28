@@ -7,6 +7,7 @@
 * [Abstract](#abstract)
 * [General info](#general-info)
 * [Repo description](#repo-description)
+* [Plots and code](#plots-and-code)
 * [Reproducibility](#reproducibility)
 
 ## Abstract
@@ -17,11 +18,37 @@ as a promising avenue for enhancing B cell responses to protein subunit vaccines
 - This repository contains the code usef for the RSV immunoglobulin repertoire sequencing data analysis. This includes figure 5,7B,7F, S5, S6F data processing and analysis.
 
 ## Repo description
-- The raw data is available in NCBI BioProject: PRJNA888955
-- Here you have access only to the source code used, the code will automatically download the processed data from the zenodo repository. 
-- The main scripts are under `src folder` as `rsv_clonotype_processing.Rmd` and `rsv_clonotype_analysis.Rmd`, the first one is aimed into more computationally intensive processing while the second contain the code for plotting and analysis that were used in the figures mentioned above.
-- Some small data can be found in this repo, the databases (V, D, and J genes) from different authors.
+- The raw sequencing reads are available in NCBI BioProject: PRJNA888955
+- Here you have access only to the source code used, the code and processed dataset can be found in the zenodo repository. 
+- The main scripts are under `src` folder as `rsv_clonotype_processing.Rmd` and `rsv_clonotype_analysis.Rmd`, the first one is aimed into more computationally intensive processing while the second contain the code for plotting and analysis that were used in the figures mentioned above.
+
+## Plots and code
+All the plots and code used to generate them are available in a comprehensive `Rmarkdown` file available in this repository. 
+
+Please [click here](https://rodrigarc.github.io/RSV-NP-repertoire/results/lab_book/rsv_clonotype_analysis.html) to access all the analysis and results performed for this project rendered in `html`.
+
 
 ## Reproducibility
-- All the bioinformatics analysis performed by Rodrigo Arcoverde can be reproduced through snakemake
-- Run "snakemake" within this folder and all the data will be generated
+- All the bioinformatics analysis performed by Rodrigo Arcoverde can be reproduced using a `conda` environment
+
+```
+# download the entire zenodo repository
+# for windowns users, download it manually on the zenodo website
+# for unix/mac users, open your terminal and run wget or curl to download the repository for the desired location, eg. your desktop
+cd ~/Desktop
+wget zenodo_repository.website.com 
+
+# install mamba if not yet installed here https://github.com/conda-forge/miniforge#mambaforge
+# move to the project folder within your terminal, this example assumes you have saved it on your desktop
+cd ~/Desktop/RSV-NP-repertoire
+
+# create mamba enviroment with the correct R version and needed packages
+mamba create -n rsv_np_repertoire -f environment.yml
+
+# render the rmarkdown analysis to reproduce all the plots and generate the html file
+Rscript src/render_rmd.R
+
+# If you do not wish to rerun everything, you can just check the code and plots. 
+# Check the Plots and code session above.
+```
+

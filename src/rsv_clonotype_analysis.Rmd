@@ -15,15 +15,14 @@ knit: (function(inputFile, encoding) {
           rmarkdown::render(inputFile,
                             encoding = encoding, 
                             output_file = paste0(
-                              xfun::sans_ext(inputFile), '_', '.html'),
-                                output_dir = "../results/lab_book/")})
+                              xfun::sans_ext(inputFile), '_', '.html'))})
 ---
 
 ```{r setup, include=FALSE}
 knitr::opts_knit$set(
   echo = TRUE,
   root.dir = getwd(),
-  fig.width = 6, fig.height = 5,
+  fig.width = 6, fig.height = 5, fig.align='center',
   warning = FALSE,
   message = FALSE
 )
@@ -52,6 +51,8 @@ Loaded libraries need to be present, the `snakemake` command will try to install
 library(tidyr)
 library(treeio)
 library(ggtree)
+library(rstatix)
+library(ggpubr)
 library(Biostrings)
 library(data.table)
 library(vegan)
@@ -59,7 +60,9 @@ library(ggplot2)
 library(scales)
 library(ggprism)
 library(dplyr)
+library(kableExtra)
 source("df_to_fasta.R")
+set.seed(123)
 ```
 
 # Load data
@@ -234,7 +237,7 @@ change_names <- function(x) {
 
 Here is the plotting and comparison between vaccinated group:
 
-```{r}
+```{r plot_chao1}
 my_comparisons <- list(c("Total_B1_20-mer", "Total_B1_1-mer"),
                        c("Total_B2_20-mer", "Total_B2_1-mer"),
                        c("PreF_B1_20-mer", "PreF_B1_1-mer"),
@@ -242,7 +245,8 @@ my_comparisons <- list(c("Total_B1_20-mer", "Total_B1_1-mer"),
                        c("DP_B1_20-mer", "DP_B1_1-mer"),
                        c("DP_B2_20-mer", "DP_B2_1-mer"))
 chao_results_df$Specificity[chao_results_df$Specificity == "total"] <- "Total"
-chao_results_df %>%
+
+chao_results_df <- chao_results_df %>%
   filter(algorithm != "Chao1_se" & algorithm != "ACE_se") %>%
   filter(algorithm == "Chao1", Timepoint != "PV", Timepoint != "Single-cell",) %>%
   mutate(Group = plyr::mapvalues(
@@ -260,18 +264,40 @@ chao_results_df %>%
   group_by(ID, Group, Timepoint, Specificity, algorithm, Group_specificity) %>%
   summarise(value = mean(value)) %>%
   tidyr::drop_na() %>%
- ggplot(aes(x = Group_specificity, y = value, fill = Group_specificity, group = Group_specificity)) +
-    geom_violin(trim=FALSE, fill = "white", color = "black") +
-    geom_point(shape = 21, size = 5, position = position_jitter(width = .1)) +
-    geom_vline(xintercept = seq(2.5,12,2), linetype = "dotted") +
-    scale_y_continuous(expand = c(0, 0)) +
-    scale_x_discrete(expand = c(0, 0)) +
-    scale_fill_manual(values = rep(c("#3F80A5", "#DC7DB8"), 6)) +
-    labs(y = "Species richness\n(Chao1)", x = "") +
-   ggpubr::stat_compare_means(method = "wilcox", label = "p.format", comparisons = my_comparisons, step.increase = FALSE, paired = FALSE)+
-    ggprism::theme_prism(base_fontface = "plain", border = T, base_line_size = .5, axis_text_angle = 45) +
-    theme(axis.ticks = element_line(size = .5),
-      legend.position = "none")
+  ungroup()
+
+write.csv(chao_results_df, paste0("../", result.dir, "chao1_results_plot_values.csv"), row.names = FALSE)
+
+
+stat.test <- chao_results_df %>%
+              wilcox_test(formula = value ~ Group_specificity, 
+                          comparisons = my_comparisons, 
+                          p.adjust.method = "fdr", 
+                          paired = FALSE) %>%
+  add_xy_position()
+
+stat.test %>%
+  kable %>%
+  kable_styling("striped") %>% 
+ scroll_box(height = "200px")
+
+chao_results_df %>%
+  ggpubr::ggdotplot(x = "Group_specificity", y = "value", 
+                    fill = "Group_specificity", group = "Group_specificity", 
+                    legend = "none", size = 2) +
+  geom_vline(xintercept = seq(2.5,12,2), linetype = "dotted") +
+  scale_y_continuous(expand = c(0, 0), limits = c(0, 300)) +
+  scale_x_discrete(expand = c(0, 0)) +
+  scale_fill_manual(values = rep(c("#5F90B0", "#D896C1"), 6)) +
+  scale_color_manual(values = rep(c("#2E6997", "#BE3C8C"), 6)) +
+  labs(y = "Species richness\n(Chao1)", x = "") +
+  stat_summary(fun.y = mean, 
+               geom = "crossbar") +
+  stat_pvalue_manual(stat.test, label = "p.adj", y.position = 270) +
+  ggprism::theme_prism(base_fontface = "plain", border = T, base_line_size = .5, axis_text_angle = 45) +
+  theme(axis.ticks = element_line(size = .5),
+        legend.position = "none")
+
 
 ggsave(paste0("../", result.dir, "chao1_species_richness.pdf"), width = 5, height = 3)
 ```
@@ -281,7 +307,7 @@ ggsave(paste0("../", result.dir, "chao1_species_richness.pdf"), width = 5, heigh
 According to `Recon` default settings and tutorial (check Recon manual), the count files generated previously were used to create the `fitfiles.txt` that were used as an input for generating the `diversity_table.txt` for all the samples.
 
 To generate the the fitfile for each count file, the bash script used in a for loop was:
-```{r, engine = 'bash', eval = FALSE}
+```{r example_recon, engine = 'bash', eval = FALSE}
 #!/bin/sh
 set -euo pipefail
 FILE=$1
@@ -292,7 +318,7 @@ python recon_v2.5.py -x --x_max 30 -o ${FILE}_plotfile.txt -b error_bar_paramete
 
 Then, each fit file was used for generating the `diversity_table.txt` with the command:
 
-```{r, eval = FALSE}
+```{r example_recon_2, eval = FALSE}
 python recon_v2.5.py -v -D -b error_bar_parameters.txt -o output_diversity_table.txt *rsv_file_to_recon.txt_fitfile.txt
 ```
 
@@ -313,21 +339,39 @@ recon_res <- read.table("../results/2022-08-08/rsv_output_diversity_table.txt", 
       )
     ),
    Group_specificity = paste(Specificity, Timepoint, Group, sep = "_")) %>%
-  mutate(Group_specificity = factor(Group_specificity, levels = c("Total_B1_20-mer", "Total_B1_1-mer", "Total_B2_20-mer", "Total_B2_1-mer", "PreF_B1_20-mer", "PreF_B1_1-mer", "PreF_B2_20-mer", "PreF_B2_1-mer", "DP_B1_20-mer", "DP_B1_1-mer", "DP_B2_20-mer", "DP_B2_1-mer"))) 
+  mutate(Group_specificity = factor(Group_specificity, levels = c("Total_B1_20-mer", "Total_B1_1-mer", "Total_B2_20-mer", "Total_B2_1-mer", "PreF_B1_20-mer", "PreF_B1_1-mer", "PreF_B2_20-mer", "PreF_B2_1-mer", "DP_B1_20-mer", "DP_B1_1-mer", "DP_B2_20-mer", "DP_B2_1-mer"))) %>%
+  ungroup()
+
+write.csv(recon_res, paste0("../", result.dir, "recon_results_plot_values.csv"), row.names = FALSE)
   
+
+stat.test <- recon_res %>%
+              wilcox_test(formula = est_0.0D ~ Group_specificity, 
+                          comparisons = my_comparisons, 
+                          p.adjust.method = "fdr", 
+                          paired = FALSE) %>%
+  add_xy_position()
+
+stat.test %>%
+  kable %>%
+  kable_styling("striped") %>% 
+ scroll_box(height = "200px")
+
 recon_res %>%
-  ggplot(aes(x = Group_specificity, y = est_0.0D, fill = Group_specificity, group = Group_specificity)) +
-    geom_violin(trim=FALSE, fill = "white", color = "black") +
-    geom_point(shape = 21, size = 5, position = position_jitter(width = .1)) +
-    geom_vline(xintercept = seq(2.5,12,2), linetype = "dotted") +
-    scale_y_continuous(expand = c(0, 0)) +
-    scale_x_discrete(expand = c(0, 0)) +
-    scale_fill_manual(values = rep(c("#3F80A5", "#DC7DB8"), 6)) +
-    labs(y = "Species richness\n(Recon)", x = "") +
-   ggpubr::stat_compare_means(method = "wilcox", label = "p.format", comparisons = my_comparisons, step.increase = FALSE, paired = FALSE)+
-    ggprism::theme_prism(base_fontface = "plain", border = T, base_line_size = .5, axis_text_angle = 45) +
-    theme(axis.ticks = element_line(size = .5),
-      legend.position = "none")
+  ggpubr::ggdotplot(x = "Group_specificity", y = "est_0.0D", fill = "Group_specificity", group = "Group_specificity", 
+                    legend = "none",size = 2) +
+  geom_vline(xintercept = seq(2.5,12,2), linetype = "dotted") +
+  scale_y_continuous(expand = c(0, 0), limits = c(0, 300)) +
+  scale_x_discrete(expand = c(0, 0)) +
+  scale_fill_manual(values = rep(c("#5F90B0", "#D896C1"), 6)) +
+  scale_color_manual(values = rep(c("#2E6997", "#BE3C8C"), 6)) +
+  labs(y = "Species richness\n(Chao1)", x = "") +
+  stat_summary(fun.y = mean, 
+               geom = "crossbar") +
+  stat_pvalue_manual(stat.test, label = "p.adj", y.position = 270) +
+  ggprism::theme_prism(base_fontface = "plain", border = T, base_line_size = .5, axis_text_angle = 45) +
+  theme(axis.ticks = element_line(size = .5),
+        legend.position = "none")
 
 ggsave(paste0("../", result.dir, "recon_species_richness.pdf"), width = 5, height = 3)
 ```
@@ -336,20 +380,35 @@ ggsave(paste0("../", result.dir, "recon_species_richness.pdf"), width = 5, heigh
 
 `Recon` program 
 
-```{r}
+```{r recon_plot_simpson}
+
+stat.test <- recon_res %>%
+              wilcox_test(formula = est_2.0D ~ Group_specificity, 
+                          comparisons = my_comparisons, 
+                          p.adjust.method = "fdr", 
+                          paired = FALSE) %>%
+  add_xy_position()
+
+stat.test %>%
+  kable %>%
+  kable_styling("striped") %>% 
+ scroll_box(height = "200px")
+
 recon_res %>%
-  ggplot(aes(x = Group_specificity, y = est_2.0D, fill = Group_specificity, group = Group_specificity)) +
-    geom_violin(trim=FALSE, fill = "white", color = "black") +
-    geom_point(shape = 21, size = 5, position = position_jitter(width = .1)) +
-    geom_vline(xintercept = seq(2.5,12,2), linetype = "dotted") +
-    scale_y_continuous(expand = c(0, 0)) +
-    scale_x_discrete(expand = c(0, 0)) +
-    scale_fill_manual(values = rep(c("#3F80A5", "#DC7DB8"), 6)) +
-    labs(y = "Simpsons Index\n(Recon)", x = "") +
-   ggpubr::stat_compare_means(method = "wilcox", label = "p.format", comparisons = my_comparisons, step.increase = FALSE, paired = FALSE)+
-    ggprism::theme_prism(base_fontface = "plain", border = T, base_line_size = .5, axis_text_angle = 45) +
-    theme(axis.ticks = element_line(size = .5),
-      legend.position = "none")
+  ggpubr::ggdotplot(x = "Group_specificity", y = "est_2.0D", fill = "Group_specificity", group = "Group_specificity", 
+                    legend = "none", size = 2) +
+  geom_vline(xintercept = seq(2.5,12,2), linetype = "dotted") +
+  scale_y_continuous(expand = c(0, 0), limits = c(0,45)) +
+  scale_x_discrete(expand = c(0, 0)) +
+  scale_fill_manual(values = rep(c("#5F90B0", "#D896C1"), 6)) +
+  scale_color_manual(values = rep(c("#2E6997", "#BE3C8C"), 6)) +
+  labs(y = "Species richness\n(Chao1)", x = "") +
+  stat_summary(fun.y = mean, 
+                 geom = "crossbar") +
+  stat_pvalue_manual(stat.test, label = "p.adj", y.position = 40) +
+  ggprism::theme_prism(base_fontface = "plain", border = T, base_line_size = .5, axis_text_angle = 45) +
+  theme(axis.ticks = element_line(size = .5),
+        legend.position = "none")
 
 ggsave(paste0("../", result.dir, "recon_simpson_index.pdf"), width = 5, height = 3)
 ```
@@ -417,24 +476,27 @@ full_rep_indiv %>%
   filter(timepoint != "Single-cell") %>%
   write.csv(paste0("../", result.dir, "repertoire_depth.csv"),row.names = FALSE)
 
-full_rep_indiv %>%
+plot_depth <- full_rep_indiv %>%
   filter(timepoint != "Single-cell") %>%
   mutate(timepoint = factor(timepoint, levels = c("PV", "B1", "B2"))) %>%
   ggplot(aes(y = aligned_seq, x = timepoint, grp = timepoint)) +
   geom_boxplot(outlier.shape = NA, lwd=1) +
   geom_jitter(aes(color = ID), size = 5) +
-  ggpubr::stat_compare_means(paired = TRUE, method = "wilcox", label = "p.format", ) +
+  ggpubr::stat_compare_means(paired = TRUE, method = "wilcox", label = "p.format", p.adjust.methods = "fdr") +
+  ggpubr::stat_compare_means(method = "kruskal") +
   labs(x = "Timepoint", y = "# aligned sequences") +
   scale_color_viridis_d() +
    ggprism::theme_prism(base_fontface = "plain", border = T, base_line_size = 1, axis_text_angle = 45, base_rect_size = 1.5)
 
-ggsave(paste0("../", result.dir, "repertoire_depth.pdf"), width = 7, height = 5)
+plot_depth
+
+ggsave(paste0("../", result.dir, "repertoire_depth.pdf"), width = 5, height = 3)
 
 ```
 
-## Plot clone size per animal per database
+## Generate data for clone size per animal per database
 
-```{r plot_and_saving}
+```{r plot_clonotypes}
 
 rds_summary <- rds_merge %>%
   group_by(database, ID_timepoint, grp) %>%
@@ -458,7 +520,7 @@ rds_summary <- rds_merge %>%
 rds_summary_noPV <- rds_summary %>%
   filter(Timepoint != "PV", Timepoint != "Single-cell")
 
-rds_summary %>%
+rds_summary_save <- rds_summary %>%
   filter(Timepoint %in% c("Single-cell", "B1","B2"),
          database == "Individualized") %>%
   group_by(ID_timepoint) %>%
@@ -467,14 +529,21 @@ rds_summary %>%
             geom_clonal_size = exp(mean(log(clonal_size))),
             unique_clones = sum(clonal_size == 1),
             total_clones_detected = n(),
-            percentage_unique_clones = round(unique_clones/total_clones_detected*100,digits = 2)) %>%
-  write.csv(paste0("../", result.dir, "clone_size_mean_median.csv"),row.names = FALSE)
+            percentage_unique_clones = round(unique_clones/total_clones_detected*100,digits = 2)) 
+
+rds_summary_save %>%
+  kable %>%
+  kable_styling("striped") %>% 
+ scroll_box(height = "200px")
+
+write.csv(rds_summary_save, 
+          paste0("../", result.dir, "clone_size_mean_median.csv"),row.names = FALSE)
 
 ```
 
 ## Correlation clone size per animal per database
 
-```{r correlation_clone}
+```{r correlation_clonotype}
 df_all <- data.frame()
 for (timepoints in unique(rds_summary_noPV$Timepoint)) {
   for (databases in unique(rds_summary_noPV$database)) {
@@ -531,7 +600,7 @@ ggsave(paste0("../", result.dir, "individualized_db_comparison.pdf"), width = 12
 
 ## IGHV-J pairing per database
 
-```{r}
+```{r v_j_pairing}
 for(i in c("Individualized", "KIMDB")){
 rds_summary_noPV <- rds_summary %>%
   # check if we want to filter clonotypes by size or not
@@ -556,11 +625,12 @@ rds_summary_noPV %>%
     scale_y_discrete(position = "right") +
     theme(axis.text.x = element_text(angle = 90, size = 8, hjust = 1, vjust = 0.5, face = "bold", colour = "black"),
           axis.text.y = element_text(face = "bold", colour = "black", size = 8),
-          strip.background = element_rect(color="black", fill="grey90", size=.8),
           strip.text = element_text(face = "bold"),
           panel.grid.major = element_blank(), 
           panel.grid.minor = element_blank(),
-          legend.position =  "top") +
+          legend.position =  "top",
+          axis.ticks = element_line(size = .5)) +
+  ggprism::theme_prism(base_fontface = "plain", border = TRUE, base_line_size = 1) +
     labs(fill = "Sequence count\n(% RSV repertoire\n per group)", x = "IGHV alleles", y = "IGHJ alleles") +
     facet_wrap(~ specificity_group + Group, ncol = 1, strip.position = "left")
 
@@ -615,7 +685,7 @@ ggplot(aes(x = clonal_rank_B2, y = clonal_size_B2, color = substr(name,1,3))) +
   ggprism::theme_prism(base_fontface = "plain", border = TRUE, base_line_size = 1) +
   theme(axis.ticks = element_line(size = .5))
 
-ggsave(paste0("../", result.dir, "clonal_size_vs_clonal_rank.pdf"), width = 7, height = 5)
+ggsave(paste0("../", result.dir, "clonal_size_vs_clonal_rank.pdf"), width = 5, height = 3)
 ```
 
 ## Count unique V-J pairs
@@ -631,22 +701,38 @@ rds_summary_noPV <- rds_summary %>%
   group_by(ID_timepoint, specificity_group, Group_specificity) %>%
   mutate(v_j_calls = paste(v_call,j_call, sep = "_")) %>%
   distinct(v_j_calls) %>%
-  summarise(unique_v_j = n())
+  summarise(unique_v_j = n()) %>%
+  ungroup()
 
 rds_summary_noPV %>% write.csv(paste0("../", result.dir,"unique_HV_HJ_pairing-data.csv"), row.names = F)
 
+stat.test <- rds_summary_noPV %>%
+              wilcox_test(formula = unique_v_j ~ Group_specificity, 
+                          comparisons = my_comparisons, 
+                          p.adjust.method = "fdr", 
+                          paired = FALSE) %>%
+  add_xy_position()
+
+stat.test %>%
+  kable %>%
+  kable_styling("striped") %>% 
+ scroll_box(height = "200px")
+
 rds_summary_noPV %>%
-    ggplot(aes(x = Group_specificity, y = unique_v_j, fill = Group_specificity, group = Group_specificity)) +
-    geom_violin(trim = FALSE) +
-    geom_vline(xintercept = seq(2.5,12,2), linetype = "dotted") +
-    scale_y_continuous(expand = c(0, 0)) +
-    scale_x_discrete(expand = c(0, 0)) +
-    scale_fill_manual(values = rep(c("#3F80A5", "#DC7DB8"), 6)) +
-    labs(y = "HV-HJ unique pair\ncounts", x = "") +
-   ggpubr::stat_compare_means(method = "wilcox", label = "p.format", comparisons = my_comparisons, step.increase = FALSE, paired = FALSE)+
-    ggprism::theme_prism(base_fontface = "plain", border = T, base_line_size = .5, axis_text_angle = 45) +
-    theme(axis.ticks = element_line(size = .5),
-      legend.position = "none")
+  ggpubr::ggdotplot(x = "Group_specificity", y = "unique_v_j", fill = "Group_specificity", 
+                    group = "Group_specificity", legend = "none", size = 2) +
+  geom_vline(xintercept = seq(2.5,12,2), linetype = "dotted") +
+  scale_y_continuous(expand = c(0, 0), limits = c(0, 200)) +
+  scale_x_discrete(expand = c(0, 0)) +
+  scale_fill_manual(values = rep(c("#5F90B0", "#D896C1"), 6)) +
+  scale_color_manual(values = rep(c("#2E6997", "#BE3C8C"), 6)) +
+  labs(y = "HV and HJ unique pairs\n(Count)", x = "") +
+  stat_summary(fun.y = mean, 
+               geom = "crossbar") +
+  stat_pvalue_manual(stat.test, label = "p.adj", y.position = 150) +
+  ggprism::theme_prism(base_fontface = "plain", border = T, base_line_size = .5, axis_text_angle = 45) +
+  theme(axis.ticks = element_line(size = .5),
+        legend.position = "none")
 
 ggsave(paste0("../", result.dir, "v-j-pair_count.pdf"), width = 5, height = 3)
 ```
@@ -674,14 +760,14 @@ ggVennDiagram::ggVennDiagram(list_v_j, label_size = 7,
                              set_color = "black",
                              set_size = 9) +
   scale_fill_gradient(low = "#F4FAFE", high = "#4981BF") +
-  scale_color_manual(values = c("#3F80A5", "#DC7DB8")) +
+  scale_color_manual(values = c("#5F90B0", "#D896C1")) +
   theme(legend.position = "none")
 
-ggsave(paste0("../", result.dir,"shared-unique-v-j_pairing.pdf"), height = 7, width = 7)
+ggsave(paste0("../", result.dir,"shared-unique-v-j_pairing.pdf"), height = 5, width = 5)
 
 ```
 
-## Plot selected LORs with individualized database
+## Process selected LORs with individualized database for plotting
 
 ```{r indv_lors_plot}
 rds_indiv <- rds_summary %>%
@@ -737,8 +823,9 @@ rownames(sol_cum_test) <- sol_cum_test[,1]
 sol_cum_test <- sol_cum_test[-c(2,4),]
 sol_cum_test <- apply(sol_cum_test[,-1], FUN = as.numeric, MARGIN = c(1,2))
 
-
+## Chi-square test for nanoparticle group
 chisq.test(NP_cum_test, correct = FALSE)
+## Chi-square test for soluble group
 chisq.test(sol_cum_test, correct = FALSE)
   
 
@@ -751,7 +838,7 @@ rds_indiv %>%
   geom_area(color = "black") +
   scale_y_continuous(expand = c(0, 0), limits = c(0, 80000)) +
   scale_x_discrete(expand = c(0.02, 0.02)) +
-  scale_fill_manual(values = c("#3F80A5", "#DC7DB8")) +
+  scale_fill_manual(values = c("#F3DDF8", "#FAE1D6")) +
   labs(y = "Clonal size") +
   ggprism::theme_prism(base_fontface = "plain", border = TRUE, base_line_size = 1) +
   theme(axis.ticks = element_line(size = .5)) +
@@ -760,7 +847,9 @@ rds_indiv %>%
 ggsave(paste0("../", result.dir, "rsv_specific_clonal_size_area_plot_spec.pdf"), width = 8, height = 2)
 ```
 
-## Plot SHM over time for individualized database divided by 20-mer and 1-mer, and specificities
+## Plot SHM over time for individualized database 
+
+Data is divided by 20-mer, 1-mer, and specificities
 
 ```{r SHM_group}
 rds_indiv_total <- rds_indiv %>%
@@ -769,26 +858,39 @@ rds_indiv_total <- rds_indiv %>%
 rds_indiv <- rbind(rds_indiv, rds_indiv_total)
 
 
-rds_indiv %>%
+rds_indiv_plot <- rds_indiv %>%
   filter(specificity_group != "PostF") %>%
   mutate(Group_specificity = paste(specificity_group, Timepoint, Group, sep = "_")) %>%
-  mutate(Group_specificity = factor(Group_specificity, levels = c("Total_B1_20-mer", "Total_B1_1-mer", "Total_B2_20-mer", "Total_B2_1-mer", "PreF_B1_20-mer", "PreF_B1_1-mer", "PreF_B2_20-mer", "PreF_B2_1-mer", "DP_B1_20-mer", "DP_B1_1-mer", "DP_B2_20-mer", "DP_B2_1-mer"))) %>% 
-  ggplot(aes(x = Group_specificity, y = V_errors, fill = Group_specificity)) + 
-  geom_violin() +
-  geom_boxplot(width=0.1, color="black", alpha=0.2, outlier.shape = NA) +
+  mutate(Group_specificity = factor(Group_specificity, levels = c("Total_B1_20-mer", "Total_B1_1-mer", "Total_B2_20-mer", "Total_B2_1-mer", "PreF_B1_20-mer", "PreF_B1_1-mer", "PreF_B2_20-mer", "PreF_B2_1-mer", "DP_B1_20-mer", "DP_B1_1-mer", "DP_B2_20-mer", "DP_B2_1-mer"))) %>% ungroup() 
+
+stat.test <- rds_indiv_plot %>%
+              wilcox_test(formula = V_errors ~ Group_specificity, 
+                          comparisons = my_comparisons, 
+                          p.adjust.method = "fdr", 
+                          paired = FALSE) %>%
+  add_xy_position()
+
+stat.test %>%
+  kable %>%
+  kable_styling("striped") %>% 
+ scroll_box(height = "200px")
+
+rds_indiv_plot %>%
+  ggpubr::ggviolin(x = "Group_specificity", y = "V_errors", fill = "Group_specificity", group = "Group_specificity", 
+                    legend = "none") +
+  geom_boxplot(outlier.shape = NA, width = 0.15, color = "black", alpha = 0.2)+
   geom_vline(xintercept = c(4.5, 8.5), linetype = "dotted") +
   scale_y_continuous(expand = c(0, 0), limits = c(0, 80)) +
+  scale_shape_manual(values=NA)+
   scale_x_discrete(expand = c(0, 0)) +
-  scale_fill_manual(values = rep(c("#3F80A5", "#DC7DB8"), 6)) +
+  scale_fill_manual(values = rep(c("#5F90B0", "#D896C1"), 6)) +
   labs(y = "# IGHV nucleotide mutations",  x= "") +
-  ggpubr::stat_compare_means(method = "wilcox", label = "p.signf", comparisons = my_comparisons, step.increase = FALSE, paired = FALSE) +
-  ggprism::theme_prism(base_fontface = "plain", border = F, base_line_size = .5, axis_text_angle = 45) +
-  theme(
-    axis.ticks = element_line(size = .5),
-    legend.position = "none"
-  )
+  stat_pvalue_manual(stat.test, label = "p.adj", y.position = 70) +
+  ggprism::theme_prism(base_fontface = "plain", border = T, base_line_size = .5, axis_text_angle = 45) +
+  theme(axis.ticks = element_line(size = .5),
+        legend.position = "none")
 
-ggsave(paste0("../", result.dir, "rsv_specific_SHM_per_group.pdf"), width = 8, height = 4)
+ggsave(paste0("../", result.dir, "rsv_specific_SHM_per_group.pdf"), width = 6, height = 3)
 ```
 
 ## Plot HCDR3 length over time for individualized database divided by 20-mer and 1-mer, and specificities
@@ -806,7 +908,7 @@ rds_indiv %>%
   geom_density(alpha = .7) +
   scale_y_continuous(expand = c(0, 0)) +
   scale_x_continuous(expand = c(0, 0)) +
-  scale_fill_manual(values = c("#3F80A5", "#DC7DB8")) +
+  scale_fill_manual(values = c("#5F90B0", "#D896C1")) +
   labs(y = "Density", x = "HCDR3 aa length") +
   ggprism::theme_prism(base_fontface = "plain", border = TRUE, base_line_size = 1) +
   theme(axis.ticks = element_line(size = .5)) +
@@ -912,7 +1014,7 @@ ggsave(paste0("../", result.dir, "indiv_validated_KIMDB_alleles.pdf"), width = 8
 
 ## Processing data
 
-```{r }
+```{r processing_for_tree}
 clonal_tree_data <- clonotype_rsv %>%
   ungroup() %>%
   distinct(new_name, .keep_all = TRUE) %>%
@@ -1013,14 +1115,14 @@ for(i in seq_along(mabs_of_interests)){
 
 ## Run MUSCLE on bash
 
-Do a Multiple Sequence Alignment using `MUSCLE` (v 3.8.1551) for all the fasta files generated through out this analysis. Following that, run `FastTree` (v 2.1.10) for all the aligned sequences and save tree output to be plotted on the following code.
+Do a Multiple Sequence Alignment using `MUSCLE` (v 5.1) for all the fasta files generated through out this analysis. Following that, run `FastTree` (v 2.1.11) for all the aligned sequences and save tree output to be plotted on the following code.
 
-```{r, engine = 'bash', message = FALSE, warning = FALSE}
+```{r align_and_tree, engine = 'bash', message = FALSE, warning = FALSE}
 
 source ~/.bash_profile
 DIR_DATE=$(date +'%Y-%m-%d')
 cd ../results/$DIR_DATE/    
-for f in *.fasta; do muscle -in $f -out $f.aln; done
+for f in *.fasta; do muscle -align $f -output $f.aln; done
 
 for f in *.aln; do fasttree -nt -gtr $f > $f.tre; done
 
@@ -1113,7 +1215,7 @@ to_remove <- c("EC50_SCDM","EC50_postF","EC50_MPV", "EC50_preF","surface_binding
     select(-all_of(c(to_remove, "PostF_binder"))) %>%
      mutate(across(.cols = everything(), .fns = function(x) pmax(x,0))) %>%
     t() %>%
-  pheatmap::pheatmap(scale = "none",cutree_cols = 8, angle_col = 90, fontsize_row = 8, clustering_method = "ward.D", color = viridis::viridis(100), cluster_rows = FALSE)
+  pheatmap::pheatmap(scale = "none",cutree_cols = 8, angle_col = 90, fontsize_row = 8, clustering_method = "ward.D", color = viridisLite::viridis(100), cluster_rows = FALSE)
  
   ggsave(g_heatmap_scale,filename = paste0("../", result.dir, "/",Sys.Date(), "_heatmap_auc_wardD.pdf"), width = 24, height = 10, units = "cm")
 }
@@ -1122,12 +1224,12 @@ to_remove <- c("EC50_SCDM","EC50_postF","EC50_MPV", "EC50_preF","surface_binding
 
 # Take environment snapshot
 
-```{r, eval = FALSE}
+```{r env_snapshopt, eval = FALSE}
 renv::snapshot()
 ```
 
 # SessionInfo
 
-```{r}
+```{r sessioninfo}
 sessionInfo()
 ```

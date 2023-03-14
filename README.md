@@ -9,6 +9,7 @@
 * [Repo description](#repo-description)
 * [Plots and code](#plots-and-code)
 * [Reproducibility](#reproducibility)
+* [License](#license)
 
 ## Abstract
 Nanoparticles for multivalent display and delivery of vaccine antigens have emerged
@@ -25,11 +26,11 @@ as a promising avenue for enhancing B cell responses to protein subunit vaccines
 ## Plots and code
 All the plots and code used to generate them are available in a comprehensive `Rmarkdown` file available in this repository. 
 
-Please [click here](https://rodrigarc.github.io/RSV-NP-repertoire/results/lab_book/rsv_clonotype_analysis.html) to access all the analysis and results performed for this project rendered in `html`.
+Please [click HERE](https://rodrigarc.github.io/RSV-NP-repertoire/results/lab_book/rsv_clonotype_analysis.html) to access the website containing all the analysis and results performed for this project.
 
 
 ## Reproducibility
-- All the bioinformatics analysis performed by Rodrigo Arcoverde can be reproduced using a `conda` environment
+- All the bioinformatics analysis performed by Rodrigo Arcoverde can be reproduced using a `mamba` or `conda` environment
 
 ```
 # download the entire zenodo repository
@@ -45,10 +46,16 @@ cd ~/Desktop/RSV-NP-repertoire
 # create mamba enviroment with the correct R version and needed packages
 mamba create -n rsv_np_repertoire -f environment.yml
 
+# activate mamba environment
+mamba activate rsv_np_repertoire
+
 # render the rmarkdown analysis to reproduce all the plots and generate the html file
-Rscript src/render_rmd.R
+Rscript --vanilla src/render_rmd.R
 
 # If you do not wish to rerun everything, you can just check the code and plots. 
 # Check the Plots and code session above.
 ```
 
+## License
+
+All the code in this repo is under a MIT license.

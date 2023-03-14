@@ -102,7 +102,7 @@ names(rep_seq_ls) <- sub("_st","",gsub("/","_",substr(rep_seq_names, 1,10)))
 
 # Plasma profiling with Multidimensional Scaling
 
-The non-human primates plasma samples from this study were used for antibody competition ELISAs coated with pre-fusion or post-fusion proteins against previously characterized monoclonal antibodies.  
+The non-human primates plasma samples from this study were used for antibody competition ELISAs coated with pre-fusion or post-fusion proteins against previously characterized monoclonal antibodies. Multidimensional scaling aims to conserve distances between datapoints and/or samples from a set of variables. Thus, closer a point is to each other, closer their competition profile in this case. It is a good way to summarize in a 2D-space a large number of variables. The MDS input is a dissimilarity matrix, for this plot the input the matrix is based on cosine distance. Although the euclidean distance is the most used, we have decided to use the cosine distance here because the magnitude of responses are less important than the competition profile itself for us. Some NHPs were really good responders, thus having higher titers for all the competitions, thus euclidean distance would drive them far away from all the other NHPs because of their high antibody titer. Since cosine distance takes into account the distance as an angle rather than the value itself, it does not take into account the weight or the magnitude of the antibody titers.
 
 ```{r mds_processing}
 cosine_distance <- function(x) {
@@ -1418,7 +1418,10 @@ to_remove <- c("EC50_postF","EC50_preF")
 }
 
 ```
-## Multidimensional scaling 
+
+## Multidimensional scaling of competition between LOR mAbs
+
+This MDS is another way to visualize the same data showed on the heatmap above. Here, the MDS input is the euclidean distance. The data was scaled and centered prior calculating their euclidean distance, which is the most used and simplest distance calculation.  
 
 ```{r mds_heatmap}
 

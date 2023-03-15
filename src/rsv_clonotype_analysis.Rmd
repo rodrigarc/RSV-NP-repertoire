@@ -1398,21 +1398,38 @@ LOR mAbs had a diverse competition profiles against different standardized mAbs 
 
 ```{r heatmap_comp}
 #edited the raw values to have the max value as the reference competition for ADI, MPE8, 101F, D25
-data_comp_auc <- read.csv("../data/ELISA_comp/2023-03-10_LOR_norm-dAUC.csv", header = T, row.names = 1) 
+data_comp_auc <- read.csv("../data/ELISA_comp/2023-03-10_LOR_norm-dAUC.csv", header = T, row.names = 1) %>%
+  mutate(specificity = factor(specificity, levels = c("PreF", "PreF/PostF", "PostF")),
+         epitope = factor(epitope, levels = c("Ø", "III", "IV", "I/IV", "II","I", "UK-Pre", "UK-DP", "PostF", "foldon", "WB")))
 
 
 data_comp_auc$EC50_preF <- log10(data_comp_auc$EC50_preF)
 data_comp_auc$EC50_postF <- log10(data_comp_auc$EC50_postF)
 
 # change here the columns you want to remove from the heatmap
-to_remove <- c("EC50_postF","EC50_preF")
+to_remove <- c("EC50_postF","EC50_preF", "epitope", "specificity")
+annot_colors <- list(specificity = c("PreF" = "#F7D586",
+                                     "PreF/PostF" = "#CD87F8",
+                                     "PostF" = "#92CDD6"), epitope = c(
+                                                    "Ø" = "#F3B084",
+                                                    "III" = "#A9D08D",
+                                                    "IV" = "#FAD0FF",
+                                                    "I/IV" = "#cbc9f3",
+                                                    "II" = "#FFD966",
+                                                    "I" = "#9BC1E6",
+                                                    "foldon" = "black",
+                                                    "UK-Pre" = "#C9C9C9",
+                                                    "UK-DP" = "#8497B0" ,
+                                                    "WB" = "black",
+                                                    "PostF" = "black"))
 
 {
+  
   g_heatmap_scale <- data_comp_auc %>%
     select(-all_of(c(to_remove))) %>%
     mutate(across(.cols = everything(), .fns = function(x) pmax(x,0))) %>%
     t() %>%
-  pheatmap::pheatmap(scale = "none",cutree_cols = 8, angle_col = 90, fontsize_row = 8, clustering_method = "ward.D", color = viridisLite::viridis(100), cluster_rows = FALSE)
+  pheatmap::pheatmap(scale = "none",cutree_cols = 8, angle_col = 90, fontsize_row = 8, clustering_method = "ward.D", color = viridisLite::viridis(100), cluster_rows = FALSE, border_color = "grey40", cluster_cols = TRUE, annotation_col = data_comp_auc[,11:12], annotation_colors = annot_colors)
  
   ggsave(g_heatmap_scale,filename = paste0("../", result.dir, "/", "LOR_heatmap_auc_wardD.pdf"), width = 24, height = 10, units = "cm")
 }
@@ -1426,12 +1443,13 @@ This MDS is another way to visualize the same data showed on the heatmap above. 
 ```{r mds_heatmap}
 
 # check which mabs should be included and added
-to_habillage <- factor(rownames(data_comp_auc), levels = c("D25","101F","Pali","MPE8","ADI", paste0("LOR", sprintf(fmt = "%02d",seq(1:106)))))
+to_habillage <- factor(rownames(data_comp_auc), levels = c(paste0("LOR", sprintf(fmt = "%02d",seq(1:106)))))
 
-data_comp_auc_neut <- data_comp_auc %>% tibble::rownames_to_column("mAb") 
+data_comp_auc <- data_comp_auc %>% tibble::rownames_to_column("name") 
 
 # compute MDS
 mds_scaled <- data_comp_auc %>%
+  select(-all_of(c(to_remove, "name"))) %>%
   scale(center = TRUE, scale = TRUE) %>%
   dist(method = "euclidean") %>%          
   cmdscale() %>%
@@ -1442,15 +1460,16 @@ colnames(mds_scaled) <- c("Dim.1", "Dim.2")
 mds_scaled$name <- to_habillage
   
 p1 <- mds_scaled %>%
-  ggplot(aes(Dim.1,Dim.2, label = name, color = name)) +
+  left_join(data_comp_auc) %>%
+  ggplot(aes(Dim.1,Dim.2, label = name, color = epitope)) +
   geom_point(size = 2) +
   ggrepel::geom_text_repel(max.overlaps = 5) +
-  scale_color_manual(values = c("#E64B35FF","#7E6148FF","#00A087FF","#3C5488FF", "#F39B7FFF",rep("#4DBBD5FF",100)))+
+  scale_color_manual(values = annot_colors[["epitope"]]) +
   ggprism::theme_prism(base_fontface = "plain", border = TRUE, base_line_size = 1) +
   theme(axis.ticks = element_line(size = .5),
         aspect.ratio = 1,
         legend.position = "none") 
-  
+
 plotly::ggplotly(p1)
 
 ggsave(width = 5, height = 3,filename = paste0("../", result.dir, "mds_euclidean-distance-plus-binding.pdf"))

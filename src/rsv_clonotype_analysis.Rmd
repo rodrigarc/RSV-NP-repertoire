@@ -68,7 +68,7 @@ set.seed(123)
 
 # Load data
 
-Some data used here is stored as `.rds` format, but it can also be found in `.tsv` at Zenodo (DOI: 000000000).
+Some data used here is stored as `.rds` format, but it can also be found as `.tsv` at Zenodo (DOI: 000000000).
 
 ```{r load_rds}
 data_comp <- read.csv("../data/ELISA_comp/2023-03-06_normalized_plasma_compt.csv") %>%
@@ -98,11 +98,27 @@ rep_seq_ls <- list.files("../data/processed_data/rep_seq", pattern = "stats.json
 rep_seq_names <- list.files("../data/processed_data/rep_seq", pattern = "stats.json", recursive = TRUE, full.names = FALSE)
 names(rep_seq_ls) <- sub("_st","",gsub("/","_",substr(rep_seq_names, 1,10)))
 
+# load mAbs data
+lor_mabs <- read.csv("../data/specificity/LOR_single-cells_characterized.csv")
+mabs_lors <- read.csv("../data/single_cell/sc_summary_filtered.csv")
+
+# load competition ELISA data
+# edited the raw values to have the max value as the reference competition for ADI, MPE8, 101F, D25
+data_comp_auc <- read.csv("../data/ELISA_comp/2023-03-10_LOR_norm-dAUC.csv", header = T, row.names = 1, encoding="UTF-8") %>%
+  mutate(specificity = factor(specificity, levels = c("PreF", "PreF/PostF", "PostF", "w.b.")),
+         epitope = factor(epitope, levels = c("Ø","V", "Ø/V", "II/V", "III", "IV", "I/IV", "II","I", "UK-Pre", "UK-DP", "UK-PostF", "foldon", "WB")))
+
+# load light chains information clonotyped
+clono_light_chains <- read.table("../data/clonotypes/light_chain_assigned_clonotypes.tsv", sep = "\t", header = TRUE) 
 ```
 
-# Plasma profiling with Multidimensional Scaling
+# Plasma profiling
 
-The non-human primates plasma samples from this study were used for antibody competition ELISAs coated with pre-fusion or post-fusion proteins against previously characterized monoclonal antibodies. Multidimensional scaling aims to conserve distances between datapoints and/or samples from a set of variables. Thus, closer a point is to each other, closer their competition profile in this case. It is a good way to summarize in a 2D-space a large number of variables. The MDS input is a dissimilarity matrix, for this plot the input the matrix is based on cosine distance. Although the euclidean distance is the most used, we have decided to use the cosine distance here because the magnitude of responses are less important than the competition profile itself for us. Some NHPs were really good responders, thus having higher titers for all the competitions, thus euclidean distance would drive them far away from all the other NHPs because of their high antibody titer. Since cosine distance takes into account the distance as an angle rather than the value itself, it does not take into account the weight or the magnitude of the antibody titers.
+The non-human primates plasma samples from this study were used for antibody competition ELISAs coated with pre-fusion or post-fusion proteins against previously characterized monoclonal antibodies. Here we show this data using different visualization methods.
+
+## Multidimensional scaling (MDS)
+
+Multidimensional scaling aims to conserve distances between datapoints and/or samples from a set of variables. Thus, closer a point is to each other, closer their competition profile in this case. It is a good way to summarize in a 2D-space a large number of variables. The MDS input is a dissimilarity matrix, for this plot the input the matrix is based on cosine distance. Although the euclidean distance is the most used, we have decided to use the cosine distance here because the magnitude of responses are less important than the competition profile itself for us. Some NHPs were really good responders, thus having higher titers for all the competitions, thus euclidean distance would drive them far away from all the other NHPs because of their high antibody titer. Since cosine distance takes into account the distance as an angle rather than the value itself, it does not take into account the weight or the magnitude of the antibody titers.
 
 ```{r mds_processing}
 cosine_distance <- function(x) {
@@ -141,7 +157,7 @@ for(f in seq_along(ls_mds)){
       ggtitle(f) +
       scale_fill_manual(values = fill_col_values) +
       scale_color_manual(values = color_values) +
-      lims(x = c(-.6,.5), y = c(-.4, .4)) + 
+      lims(x = c(-.5,.5), y = c(-.4, .4)) + 
       ggprism::theme_prism(base_fontface = "plain", border = TRUE, base_line_size = 1) +
       theme(axis.ticks = element_line(size = .5),
             legend.position = c(.1,.9)) +
@@ -154,11 +170,167 @@ for(f in seq_along(ls_mds)){
 
 ```
 
+## Plasma profiling with MDS divided by timepoint
+
+```{r mds_per_timepoint}
+# calculate cosine distance and generate MDS with and without PostF
+mds_b1 <- data_comp %>% filter(timepoints == "B1") %>% cosine_distance()
+mds_b2 <- data_comp %>% filter(timepoints == "B2") %>% cosine_distance()
+mds_no_postf_b1 <- data_comp %>% filter(group != "PostF", timepoints == "B1") %>% cosine_distance()
+mds_no_postf_b2 <- data_comp %>% filter(group != "PostF", timepoints == "B2") %>% cosine_distance()
+ls_mds <- list(mds_b1, mds_b2, mds_no_postf_b1, mds_no_postf_b2)
+
+for(f in seq_along(ls_mds)){
+# Plot and color by groups
+    mds_plot <- ls_mds[[f]]
+    if(f == 2){
+      mds_plot$Dim.1 <- mds_plot$Dim.1 * -1 # flip axis in first dimension
+    }
+    
+    plot <- mds_plot %>%
+      ggplot(aes(Dim.1, Dim.2, color = group, fill = group)) + 
+      geom_point(size = 4, shape = 21) +
+      ggtitle(f) +
+      scale_fill_manual(values = fill_col_values) +
+      scale_color_manual(values = color_values) +
+      lims(x = c(-.5,.5), y = c(-.4, .4)) + 
+      ggprism::theme_prism(base_fontface = "plain", border = TRUE, base_line_size = 1) +
+      theme(axis.ticks = element_line(size = .5),
+            legend.position = c(.1,.2),
+            legend.background = element_blank(),
+            legend.box.background = element_rect(colour = "black")) +
+      facet_wrap(~timepoints)
+    
+    print(plot)
+    ggsave(plot = plot, filename = paste0("../", result.dir, f,"_mds_cosine-distance.pdf"), device = "pdf", width = 4, height = 4)
+  }
+
+```
+
+## Competition titers as bar plots
+
+### Competition for epitopes on Pref
+
+```{r competition_bars_pref}
+
+data_comp_longer <- data_comp %>%
+  pivot_longer(cols = 2:9, names_to = "mAb", values_to = "ELISA_competition") %>%
+  mutate(epitopes = plyr::mapvalues(mAb, 
+                                    from = c("D25.PreF", "MPE8.PreF", "ADI.PreF", "Pali.PreF", "X101F.PreF",
+                                             "ADI.PostF", "X101F.PostF", "Pali.PostF"), 
+                                    to = c("Ø", "III", "I", "II", "IV",
+                                           "I", "IV", "II")),
+         epitopes = factor(epitopes, levels = c("Ø", "III", "IV", "II", "I")),
+         conformation = factor(case_when(grepl("PostF", mAb) ~ "PostF",
+                                  grepl("PreF", mAb) ~ "PreF"), levels = c("PreF", "PostF")),
+        timepoint_group = paste(timepoints, group, sep = "_"),
+        timepoint_group_epitope = paste(timepoints, group, epitopes, sep = "_"))
+
+my_comparisons_sites <- list(c("B1_1-mer", "B1_20-mer"),
+                       c("B1_1-mer", "B1_10-mer"),
+                       c("B1_1-mer", "B1_PostF"),
+                       c("B1_10-mer", "B1_20-mer"),
+                       c("B1_10-mer", "B1_PostF"),
+                       c("B1_20-mer", "B1_PostF"),
+                       c("B2_1-mer", "B2_20-mer"),
+                       c("B2_1-mer", "B2_10-mer"),
+                       c("B2_1-mer", "B2_PostF"),
+                       c("B2_10-mer", "B2_20-mer"),
+                       c("B2_10-mer", "B2_PostF"),
+                       c("B2_20-mer", "B2_PostF"))
+
+my_comparisons_1 <- lapply(my_comparisons_sites, paste0, "_I")
+my_comparisons_2 <- lapply(my_comparisons_sites, paste0, "_II")
+my_comparisons_3 <- lapply(my_comparisons_sites, paste0, "_III")
+my_comparisons_4 <- lapply(my_comparisons_sites, paste0, "_IV")
+my_comparisons_5 <- lapply(my_comparisons_sites, paste0, "_Ø")
+
+# Selecting sites for statistical comparison only between groups for each timepoint
+# removed statistical comparisons for Boost 1 site I in PreF since most values were below the threshold of detection
+my_comparisons_preF <- c(my_comparisons_1[7:12], my_comparisons_2, my_comparisons_3, my_comparisons_4, my_comparisons_5)
+my_comparisons_postF <- c(my_comparisons_1, my_comparisons_2, my_comparisons_4)
+  
+
+stat.test <- data_comp_longer %>%
+  filter(conformation == "PreF") %>%
+  wilcox_test(formula = ELISA_competition ~ timepoint_group_epitope, 
+              paired = FALSE, 
+              p.adjust.method = "fdr", 
+              comparisons = my_comparisons_preF)
+
+stat.test %>%
+  kable %>%
+  kable_styling("striped") %>% 
+ scroll_box(height = "200px")
+
+data_comp_longer %>%
+  filter(conformation == "PreF") %>%
+  ggplot(aes(x = timepoint_group,
+            y = ELISA_competition,
+            color = group,
+            fill = group)) +
+  geom_point(size = 2, shape = 21) +
+  scale_fill_manual(values = fill_col_values) +
+  scale_color_manual(values = color_values) +
+  ggprism::theme_prism(base_fontface = "plain", border = TRUE, base_line_size = .5) +
+  scale_y_log10() +
+  stat_summary(fun.y = mean, 
+               geom = "crossbar",
+               color = "black") +
+  geom_hline(yintercept = 10, linetype = "dashed") +
+  labs(title = "PreF Antigenic Sites", y = "50% Competition Titer", x = "") +
+  theme(axis.ticks = element_line(size = .5),
+        legend.background = element_blank(),
+        axis.text.x = element_text(angle = 45, vjust = 1, hjust=1, size = 7)) +
+  facet_wrap(~epitopes, nrow = 1) 
+
+```
+
+### Competition for epitopes on Pref
+
+```{r competition_bars_postf}
+
+stat.test <- data_comp_longer %>%
+  filter(conformation == "PostF") %>%
+  wilcox_test(formula = ELISA_competition ~ timepoint_group_epitope, 
+              paired = FALSE, 
+              p.adjust.method = "fdr", 
+              comparisons = my_comparisons_postF) %>%
+  add_xy_position()
+
+stat.test %>%
+  kable %>%
+  kable_styling("striped") %>% 
+ scroll_box(height = "200px")
+
+data_comp_longer %>%
+  filter(conformation == "PostF") %>%
+  ggplot(aes(x = timepoint_group,
+            y = ELISA_competition,
+            color = group,
+            fill = group)) +
+  geom_point(size = 2, shape = 21) +
+  scale_fill_manual(values = fill_col_values) +
+  scale_color_manual(values = color_values) +
+  ggprism::theme_prism(base_fontface = "plain", border = TRUE, base_line_size = .5) +
+  scale_y_log10() +
+  stat_summary(fun.y = mean, 
+               geom = "crossbar",
+               color = "black") +
+  geom_hline(yintercept = 10, linetype = "dashed") +
+  labs(title = "PostF Antigenic Sites", y = "50% Competition Titer", x = "") +
+  theme(axis.ticks = element_line(size = .5),
+        legend.background = element_blank(),
+        axis.text.x = element_text(angle = 45, vjust = 1, hjust=1, size = 7)) +
+  facet_wrap(~epitopes, nrow = 1) 
+
+```
+
 # Save metadata from B cell repertoire sequencing
 
 Save table containing read information from the high-throughput sequencing. It includes number of raw reads per animal and number of processed reads with high quality assignment of HV and HJ genes using IgDiscover software as an IgBlast wrapper.
 
-```{r repseq_metadata}
+```{r metadata_bcrseq}
 rep_seq_stat <-  lapply(rep_seq_ls, function(x) fromJSON(txt = x ))
 rep_seq_stat <-  lapply(rep_seq_stat, as.data.frame)
 rep_seq_stat <- data.table::rbindlist(rep_seq_stat, idcol = "ID", fill = TRUE) 
@@ -373,7 +545,7 @@ chao_results_df %>%
                     fill = "Group", 
                     color = "Group",
                     group = "Group_specificity", 
-                    legend = "none", size = 2) +
+                    legend = "none", size = 1) +
   geom_vline(xintercept = seq(2.5,12,2), linetype = "dotted") +
   scale_y_continuous(expand = c(0, 0), limits = c(0, 300)) +
   scale_x_discrete(expand = c(0, 0)) +
@@ -396,6 +568,7 @@ ggsave(paste0("../", result.dir, "chao1_species_richness.pdf"), width = 5, heigh
 According to `Recon` default settings and tutorial (check Recon manual), the count files generated previously were used to create the `fitfiles.txt` that were used as an input for generating the `diversity_table.txt` for all the samples.
 
 To generate the the fitfile for each count file, the bash script used in a for loop was:
+
 ```{r example_recon, engine = 'bash', eval = FALSE}
 #!/bin/sh
 set -euo pipefail
@@ -451,7 +624,7 @@ recon_res %>%
                     fill = "Group", 
                     color = "Group",
                     group = "Group_specificity", 
-                    legend = "none", size = 2) +
+                    legend = "none", size = 1) +
   geom_vline(xintercept = seq(2.5,12,2), linetype = "dotted") +
   scale_y_continuous(expand = c(0, 0), limits = c(0, 300)) +
   scale_x_discrete(expand = c(0, 0)) +
@@ -470,7 +643,7 @@ ggsave(paste0("../", result.dir, "recon_species_richness.pdf"), width = 5, heigh
 
 ## Simpsons diversity (Recon)
 
-`Recon` program 
+`Recon` program
 
 ```{r recon_plot_simpson}
 
@@ -491,7 +664,7 @@ recon_res %>%
                     fill = "Group", 
                     color = "Group",
                     group = "Group_specificity", 
-                    legend = "none", size = 2) +
+                    legend = "none", size = 1) +
   geom_vline(xintercept = seq(2.5,12,2), linetype = "dotted") +
   scale_y_continuous(expand = c(0, 0), limits = c(0, 45)) +
   scale_x_discrete(expand = c(0, 0)) +
@@ -507,14 +680,17 @@ recon_res %>%
 
 ggsave(paste0("../", result.dir, "recon_simpson_index.pdf"), width = 5, height = 3)
 ```
+
 # Comparing repertoires
 
-## Calculating average SHM per database
+## Processing clonotype datasets
+
+After merging the antigen-specific sequences and bulk sequencing, we run the the `clonotype module` from IgDiscover to assign clonotype grouping to each sequence. We have done that for both the individualized germline and the KIMDB database. Here we are reading those datasets
 
 ```{r shm_avg_dbs_processing}
 
 ls <- list.files("../data/clonotypes", recursive = T, full.names = T)
-ls <- ls[grepl("rsv", ls)]
+ls <- ls[grepl("rsv", ls) & grepl("individualized|nestor-rm", ls) ]
 names(ls) <- basename(dirname(ls))
 rds_merge <- lapply(ls, readRDS)
 rds_merge <- rbindlist(rds_merge, idcol = TRUE, fill = TRUE)
@@ -524,10 +700,10 @@ rds_merge <- rds_merge %>%
     Timepoint = factor(gsub(".*_", "", ID_timepoint), levels = c("PV", "B1", "B2", "Single-cell")),
     ID = gsub("_.*", "", ID_timepoint),
     database = plyr::mapvalues(.id,
-      from = c("IMGTrm", "cirelli", "nestor-rm", "individualized"),
-      to = c("IMGTrm", "Cirelli et al.", "KIMDB", "Individualized")
+      from = c("nestor-rm", "individualized"),
+      to = c("KIMDB", "Individualized")
     ),
-    database = factor(database, levels = c("IMGTrm", "Cirelli et al.", "KIMDB", "Individualized")),
+    database = factor(database, levels = c("KIMDB", "Individualized")),
     Group = plyr::mapvalues(
       ID, c(
         "E11", "E16", "E17", "E23", "E24",
@@ -547,43 +723,50 @@ rds_merge <- rds_merge %>%
   ungroup() %>%
   filter(database %in% c("KIMDB", "Individualized"))
 
-rds_merge_stat <- rds_merge %>%
-  group_by(database) %>%
-  summarise(SHM_mean = mean(V_SHM), SHM_sd = sd(V_SHM), size = n())
-
-rds_merge_stat
-
-fwrite(rds_merge_stat, paste0("../", result.dir, "merged_databases_shm.csv"), row.names = FALSE, sep = ",")
 ```
 
 ## Plot number of sequences per animal
 
-```{r sequencing_depth, eval=FALSE}
-full_rep_indiv <- readRDS("../data/clonotypes/individualized/processed_clonotypes.rds")
+Plotting sequencing depth for each timepoint per animal. This indicates that the sequencing depth for Boost 1 was lower, thus for that reason all the analysis were normalized by sequencing depth to take that into account. 
 
-full_rep_indiv <- full_rep_indiv %>%
-  filter(timepoint != "PV") %>%
-  distinct(new_name, .keep_all = TRUE) %>%
+```{r sequencing_depth}
+# samples from BR2-B2 from E17 were merged with TR1-B2
+# this was done due to low sequencing depth for that animal and large expansion of uncharacterized clones 
+full_rep_indiv <- read.table("../data/processed_data/summary_sequencing_table.tsv", 
+                             header = TRUE) %>%
+  separate(ID, sep = "_", into = c("sample", "ID")) %>%
+  filter(sample != "TR2-B2") %>%
+  mutate(sample = ifelse(sample == "BR2-B2", "TR1-B2", sample),
+         timepoint = case_when(sample == "igm" ~ "PV",
+                            grepl("B1", sample) ~ "B1",
+                            grepl("B2", sample) ~ "B2"),
+         timepoint = factor(timepoint, levels = c("PV", "B1", "B2"))) %>%
   group_by(timepoint, ID) %>%
-  summarise(aligned_seq = n())
+  summarise(across(where(is.numeric), sum)) %>%
+  ungroup()
+  
+# since here we wanted to compare all groups, we used Dunn's test
+stat.test <- full_rep_indiv %>%
+              dunn_test(formula = assignment_filtering.has_cdr3 ~ timepoint,
+                          p.adjust.method = "fdr") %>%
+  add_xy_position()
+
+stat.test %>%
+  kable %>%
+  kable_styling("striped") %>% 
+ scroll_box(height = "200px")
 
 full_rep_indiv %>%
-  filter(timepoint != "Single-cell") %>%
-  write.csv(paste0("../", result.dir, "repertoire_depth.csv"),row.names = FALSE)
-
-plot_depth <- full_rep_indiv %>%
-  filter(timepoint != "Single-cell") %>%
-  mutate(timepoint = factor(timepoint, levels = c("PV", "B1", "B2"))) %>%
-  ggplot(aes(y = aligned_seq, x = timepoint, grp = timepoint)) +
-  geom_boxplot(outlier.shape = NA, lwd=1) +
-  geom_jitter(aes(color = ID), size = 5) +
-  ggpubr::stat_compare_means(paired = TRUE, method = "wilcox", label = "p.format", p.adjust.methods = "fdr") +
+  ggdotplot(y = "assignment_filtering.has_cdr3", x = "timepoint", 
+            group = "timepoint", 
+            fill = "ID", 
+            size = 1,) +
+  geom_boxplot(alpha = .2, outlier.shape = NA) +
   ggpubr::stat_compare_means(method = "kruskal") +
-  labs(x = "Timepoint", y = "# aligned sequences") +
-  scale_color_viridis_d() +
+  labs(x = "Timepoint", y = "# good quality aligned sequences") +
+  scale_fill_viridis_d() +
+  stat_pvalue_manual(stat.test %>% mutate(p.adj = round(p.adj, 4)), label = "p.adj") +
    ggprism::theme_prism(base_fontface = "plain", border = T, base_line_size = 1, axis_text_angle = 45, base_rect_size = 1.5)
-
-plot_depth
 
 ggsave(paste0("../", result.dir, "repertoire_depth.pdf"), width = 5, height = 3)
 
@@ -713,74 +896,29 @@ rds_summary_noPV <- rds_summary %>%
   summarise(clonal_size_perc = sum(clonal_size_perc)) %>%
   filter(specificity_group != "PostF") %>% droplevels()
 
-rds_summary_noPV %>%
-  ggplot(aes(x= v_call, y = j_call, fill = clonal_size_perc)) +
-    geom_tile(color = "black") +
-    scale_fill_viridis_c(option = "viridis", direction = 1) +
-    scale_y_discrete(position = "right") +
-    ggprism::theme_prism(base_fontface = "plain", border = TRUE, base_line_size = 1) +
-    theme(axis.text.x = element_text(angle = 90, size = 8, hjust = 1, vjust = 0.5, face = "bold", colour = "black"),
-          axis.text.y = element_text(face = "bold", colour = "black", size = 8),
-          strip.text = element_text(face = "bold"),
-          panel.grid.major = element_blank(), 
-          panel.grid.minor = element_blank(),
-          legend.position =  "top",
-          axis.ticks = element_line(size = .5)) +
-    labs(fill = "Sequence count\n(% RSV repertoire\n per group)", x = "IGHV alleles", y = "IGHJ alleles") +
-    facet_wrap(~ specificity_group + Group, ncol = 1, strip.position = "left")
+plot_vj <-  rds_summary_noPV %>%
+    ggplot(aes(x= v_call, y = j_call, fill = clonal_size_perc)) +
+      geom_tile(color = "black") +
+      scale_fill_viridis_c(option = "viridis", direction = 1) +
+      scale_y_discrete(position = "right") +
+      ggprism::theme_prism(base_fontface = "plain", border = TRUE, base_line_size = 1) +
+      coord_equal() +
+      theme(axis.text.x = element_text(angle = 90, size = 5, hjust = 1, vjust = 0.5, face = "bold", colour = "black"),
+            axis.text.y = element_text(face = "bold", colour = "black", size = 5),
+            strip.text = element_text(face = "bold"),
+            panel.grid.major = element_blank(), 
+            panel.grid.minor = element_blank(),
+            legend.position =  "top",
+            axis.ticks = element_line(size = .5),
+            legend.title = element_text()) +
+      labs(fill = "Sequence count\n(% RSV repertoire\n per group)", x = "IGHV alleles", y = "IGHJ alleles", title = paste0(i, " Database")) +
+      facet_wrap(~ specificity_group + Group, ncol = 1, strip.position = "left")
 
-ggsave(paste0("../", result.dir,i,"_IGHV-IGHJ_pairing-rsv-specific-sequences_perc.pdf"), width = 9, height = 7)
-}
-```
+print(plot_vj)
 
-## IGHV-HJ pairing LOR mabs
-
-```{r lor_mabs}
-lor_mabs <- read.csv("../data/specificity/LOR_single-cells_characterized.csv")
-mabs_lors <- read.csv("../data/single_cell/sc_summary_filtered.csv")
-mabs_lors <- mabs_lors %>%
-  filter(name %in% lor_mabs$well_ID) %>%
-  mutate(mAbs_ID = plyr::mapvalues(name, from = lor_mabs$well_ID, to = lor_mabs$LOR)) %>%
-  arrange(mAbs_ID) %>%
-  relocate(mAbs_ID)
-
-mabs_clonal_rank <- rds_summary
-for(i in mabs_lors$name) {
-  mabs_clonal_rank[[i]] <- ifelse(grepl(i, rds_summary$sc_clone_grp), 
-                                  mabs_lors[mabs_lors$name == i,]$mAbs_ID, 
-                                  NA)
+ggsave(plot = plot_vj, filename = paste0("../",result.dir,i,"_IGHV-IGHJ_pairing-rsv-specific-sequences_perc.pdf"), width = 9, height = 7)
 }
 
-col_combine <- colnames(mabs_clonal_rank[15:length(mabs_clonal_rank)])         
-mabs_clonal_rank <- mabs_clonal_rank %>%  
-  mutate(LOR = purrr::invoke(coalesce, across(all_of(col_combine)))) %>%
-  select(LOR, colnames(mabs_clonal_rank)[! colnames(mabs_clonal_rank) %in% col_combine]) %>%
-  filter(!is.na(LOR), database == "Individualized", Timepoint == "B2") %>%
-  arrange(LOR) %>%
-  mutate(well_ID = plyr::mapvalues(LOR, from = lor_mabs$LOR, to = substr(lor_mabs$well_ID, 1,3))) %>%
-  filter(ID == well_ID)
-
-mabs_lors <- mabs_lors %>% 
-  mutate(clonal_rank_B2 = plyr::mapvalues(mAbs_ID, from = mabs_clonal_rank$LOR, to = mabs_clonal_rank$clonal_size_rank),
-         clonal_size_B2 = plyr::mapvalues(mAbs_ID, from = mabs_clonal_rank$LOR, to = mabs_clonal_rank$clonal_size),
-         clonal_group = plyr::mapvalues(mAbs_ID, from = mabs_clonal_rank$LOR, to = mabs_clonal_rank$grp)) %>%
-  relocate(mAbs_ID, clonal_rank_B2, clonal_size_B2, clonal_group)
-
-# Fixed manually LOR24 (same as LOR19), LOR37 (not detected B2), LOR40(not detected B2), LOR42 (same clone as LOR01)
-mabs_lors %>% write.csv(paste0("../", result.dir,"LOR_mAbs_info.csv"), row.names = F)
-mabs_lors <- read.csv(paste0("../results/2022-09-23/LOR_mAbs_info.csv"))
-
-mabs_lors %>%
-ggplot(aes(x = clonal_rank_B2, y = clonal_size_B2, color = substr(name,1,3))) +
-  geom_point(size = 3) +
-  scale_color_viridis_d() +
-  scale_y_log10() +
-  scale_x_log10() +
-  labs(fill = "Animal ID", x = "Clonal rank\n(log10)", y = "Clonal size\n(log10)") +
-  ggprism::theme_prism(base_fontface = "plain", border = TRUE, base_line_size = 1) +
-  theme(axis.ticks = element_line(size = .5))
-
-ggsave(paste0("../", result.dir, "clonal_size_vs_clonal_rank.pdf"), width = 5, height = 3)
 ```
 
 ## Count unique V-J pairs
@@ -818,7 +956,7 @@ rds_summary_noPV %>%
                     fill = "Group", 
                     color = "Group",
                     group = "Group_specificity", 
-                    legend = "none", size = 2) +
+                    legend = "none", size = 1) +
   geom_vline(xintercept = seq(2.5,12,2), linetype = "dotted") +
   scale_y_continuous(expand = c(0, 0), limits = c(0, 200)) +
   scale_x_discrete(expand = c(0, 0)) +
@@ -865,7 +1003,7 @@ ggsave(paste0("../", result.dir,"shared-unique-v-j_pairing.pdf"), height = 5, wi
 
 ```
 
-## Process selected LORs with individualized database for plotting
+## Process and merge dataset with metadata
 
 ```{r indv_lors_plot}
 rds_indiv <- rds_summary %>%
@@ -895,38 +1033,12 @@ rds_indiv <- rds_indiv %>%
 
 ```
 
-## Clone size area plot (cumulative) of 20-mer and 1-mer, divided by specificity (DP & PreF)
+## Cumulative plots 
+
+### Clone size area plot (cumulative) of 20-mer and 1-mer, divided by specificity (DP & PreF)
 
 ```{r cumulative_plot}
-NP_cum_test <- rds_indiv %>%
-  group_by(Group, Timepoint, specificity_group) %>%
-  summarise(clonal_size = sum(clonal_size)) %>%
-  ungroup() %>%
-  tidyr::pivot_wider(values_from = clonal_size, names_from = Timepoint) %>%
-  filter(Group == "20-mer") %>%
-  select(-Group) %>% as.matrix()
-rownames(NP_cum_test) <- NP_cum_test[,1]
-NP_cum_test <- NP_cum_test[-c(2,4),]
-NP_cum_test <- apply(NP_cum_test[,-1], FUN = as.numeric, MARGIN = c(1,2))
-
-
-sol_cum_test <- rds_indiv %>%
-  group_by(Group, Timepoint, specificity_group) %>%
-  summarise(clonal_size = sum(clonal_size)) %>%
-  ungroup() %>%
-  tidyr::pivot_wider(values_from = clonal_size, names_from = Timepoint) %>%
-  filter(Group == "1-mer") %>%
-  select(-Group) %>% as.matrix()
-rownames(sol_cum_test) <- sol_cum_test[,1]
-sol_cum_test <- sol_cum_test[-c(2,4),]
-sol_cum_test <- apply(sol_cum_test[,-1], FUN = as.numeric, MARGIN = c(1,2))
-
-## Chi-square test for nanoparticle group
-chisq.test(NP_cum_test, correct = FALSE)
-## Chi-square test for soluble group
-chisq.test(sol_cum_test, correct = FALSE)
   
-
 rds_indiv %>%
   group_by(Group, Timepoint, specificity_group) %>%
   summarise(clonal_size = sum(clonal_size)) %>%
@@ -945,9 +1057,31 @@ rds_indiv %>%
 ggsave(paste0("../", result.dir, "rsv_specific_clonal_size_area_plot_spec.pdf"), width = 8, height = 2)
 ```
 
-## Plot SHM over time for individualized database 
+### Clone size area plot (cumulative) per animal, divided by specificity (DP & PreF)
 
-Data is divided by 20-mer, 1-mer, and specificities
+```{r cumulative_plot_animal}
+rds_indiv %>%
+  group_by(Group, ID, Timepoint, specificity_group) %>%
+  summarise(clonal_size = sum(clonal_size)) %>%
+  tidyr::drop_na() %>%
+  filter(specificity_group != "PostF") %>%
+  ggplot(aes(x = Timepoint, y = clonal_size, fill = specificity_group, group = specificity_group)) +
+  geom_area(color = "black") +
+  scale_y_continuous(expand = c(0, 0), limits = c(0, 30000)) +
+  scale_x_discrete(expand = c(0.02, 0.02)) +
+  scale_fill_manual(values = c("#F3DDF8", "#FAE1D6")) +
+  labs(y = "Clonal size") +
+  ggprism::theme_prism(base_fontface = "plain", border = TRUE, base_line_size = 1) +
+  theme(axis.ticks = element_line(size = .5)) +
+  facet_wrap(~Group + ID, ncol = 5)
+
+
+```
+## Somatic hypermutation comparisons
+
+### Somatic hypermutation over time for individualized database
+
+Here the SHM is shown for all the sequences for every animal combined. Data is divided by 20-mer, 1-mer, and specificities. T
 
 ```{r SHM_group}
 rds_indiv_total <- rds_indiv %>%
@@ -986,9 +1120,52 @@ rds_indiv_plot %>%
   stat_pvalue_manual(stat.test, label = "p.adj", y.position = 70) +
   ggprism::theme_prism(base_fontface = "plain", border = T, base_line_size = .5, axis_text_angle = 45) +
   theme(axis.ticks = element_line(size = .5),
-        legend.position = "none")
+        legend.position = "none") 
 
 ggsave(paste0("../", result.dir, "rsv_specific_SHM_per_group.pdf"), width = 6, height = 3)
+```
+
+### Plot somatic hypermutation over time summarized by animal
+
+Here the SHM data is summarized per macaque, so each dot represents the average SHM of all the antigen-specific sequences for one animal.
+
+```{r shm_per_animal}
+rds_indiv_plot_summ <- rds_indiv_plot %>%
+  filter(Group_specificity != "PostF") %>%
+  group_by(ID, Group_specificity) %>%
+  summarise(avg_V_errors = mean(V_errors, na.rm = TRUE)) %>%
+  ungroup() %>%
+  tidyr::drop_na()
+
+stat.test <- rds_indiv_plot_summ %>%
+              wilcox_test(formula = avg_V_errors ~ Group_specificity, 
+                          comparisons = my_comparisons, 
+                          p.adjust.method = "fdr", 
+                          paired = FALSE) %>%
+  add_xy_position()
+
+stat.test %>%
+  kable %>%
+  kable_styling("striped") %>% 
+ scroll_box(height = "200px")
+
+rds_indiv_plot_summ %>%
+  ggpubr::ggdotplot(x = "Group_specificity", y = "avg_V_errors", fill = "Group_specificity", group = "Group_specificity", 
+                    legend = "none") +
+  geom_vline(xintercept = c(4.5, 8.5), linetype = "dotted") +
+  scale_y_continuous(expand = c(0, 0), limits = c(0, 25)) +
+  scale_shape_manual(values=NA)+
+  scale_x_discrete(expand = c(0, 0)) +
+  scale_fill_manual(values = rep(c("#5F90B0", "#D896C1"), 6)) +
+  stat_summary(fun.y = mean, 
+               geom = "crossbar") +
+  labs(y = "# IGHV nucleotide mutations",  x= "") +
+  stat_pvalue_manual(stat.test, label = "p.adj", y.position = 22) +
+  ggprism::theme_prism(base_fontface = "plain", border = T, base_line_size = .5, axis_text_angle = 45) +
+  theme(axis.ticks = element_line(size = .5),
+        legend.position = "none") 
+
+
 ```
 
 ## Plot HCDR3 length over time for individualized database divided by 20-mer and 1-mer, and specificities
@@ -1131,7 +1308,6 @@ HC_all_filtered <- clonotype_rsv %>% filter(timepoint == "Single-cell")
 LV_genes <- readDNAStringSet("../data/databases/cirelli_LC/V.fasta")
 LJ_genes <- readDNAStringSet("../data/databases/cirelli_LC/J.fasta")
 
-clono_light_chains <- read.table("../data/clonotypes/light_chain_assigned_clonotypes.tsv", sep = "\t", header = TRUE) 
 ```
 
 ## Generating fasta files for tree plotting
@@ -1253,7 +1429,7 @@ for(i in seq_along(mabs_of_interests)){
 
 ```
 
-## Run MUSCLE on bash
+## Run MUSCLE in bash
 
 Do a Multiple Sequence Alignment using `MUSCLE` (v 5.1) for all the fasta files generated through out this analysis. Following that, run `FastTree` (v 2.1.11) for all the aligned sequences and save tree output to be plotted on the following code.
 
@@ -1332,7 +1508,7 @@ for(i in seq_along(plots)){
     scale_size_area(limits = c(1,25), breaks = c(1,5,10,15,25), max_size = 3)+
     geom_treescale(width = .05)
 
-  gg_plot
+  print(gg_plot)
   
    ggsave(gg_plot, filename = paste0("../", result.dir,  names(ls)[[i]], "_tree.pdf"), width = ifelse(grepl("LC", plot_name), 3, 4), height = ifelse(grepl("LC", plot_name), 3, 6))
   }
@@ -1341,7 +1517,7 @@ for(i in seq_along(plots)){
 
 # LOR24 identity search
 
-Query LOR24 amino acid sequence in bulk repertoire sequencing from each animal. Query was done without alignment due to large number of sequences, but string distance was calculated using Levenstein distance. 
+Query LOR24 amino acid sequence in bulk repertoire sequencing from each animal. Query was done without alignment due to large number of sequences, but string distance was calculated using Levenstein distance.
 
 ## Read and calculate identity
 
@@ -1392,26 +1568,28 @@ ggsave(filename = paste0("../", result.dir,"LOR24_2d-histogram.pdf"))
      
 ```
 
-# Heatmap of competition between LOR mAbs
+# Profiling expressed monoclonal antibodies
 
-LOR mAbs had a diverse competition profiles against different standardized mAbs while binding to PostF and PreF RSV fusion proteins. 
+## Heatmap of competition between LOR mAbs
+
+LOR mAbs had a diverse competition profiles against different standardized mAbs while binding to PostF and PreF RSV fusion proteins.
 
 ```{r heatmap_comp}
-#edited the raw values to have the max value as the reference competition for ADI, MPE8, 101F, D25
-data_comp_auc <- read.csv("../data/ELISA_comp/2023-03-10_LOR_norm-dAUC.csv", header = T, row.names = 1) %>%
-  mutate(specificity = factor(specificity, levels = c("PreF", "PreF/PostF", "PostF")),
-         epitope = factor(epitope, levels = c("Ø", "III", "IV", "I/IV", "II","I", "UK-Pre", "UK-DP", "PostF", "foldon", "WB")))
-
 
 data_comp_auc$EC50_preF <- log10(data_comp_auc$EC50_preF)
 data_comp_auc$EC50_postF <- log10(data_comp_auc$EC50_postF)
+data_comp_auc$IC50_RSV_A2 <- log10(data_comp_auc$IC50_RSV_A2)
 
 # change here the columns you want to remove from the heatmap
-to_remove <- c("EC50_postF","EC50_preF", "epitope", "specificity")
+to_remove <- c("EC50_postF","EC50_preF", "epitope", "specificity", "IC50_RSV_A2")
 annot_colors <- list(specificity = c("PreF" = "#F7D586",
                                      "PreF/PostF" = "#CD87F8",
-                                     "PostF" = "#92CDD6"), epitope = c(
+                                     "PostF" = "#92CDD6",
+                                     "w.b." = "grey20"), epitope = c(
                                                     "Ø" = "#F3B084",
+                                                    "Ø/V" = "pink", 
+                                                    "V" = "salmon", 
+                                                    "II/V" = "#F5B350",
                                                     "III" = "#A9D08D",
                                                     "IV" = "#FAD0FF",
                                                     "I/IV" = "#cbc9f3",
@@ -1420,25 +1598,35 @@ annot_colors <- list(specificity = c("PreF" = "#F7D586",
                                                     "foldon" = "black",
                                                     "UK-Pre" = "#C9C9C9",
                                                     "UK-DP" = "#8497B0" ,
-                                                    "WB" = "black",
-                                                    "PostF" = "black"))
+                                                    "WB" = "grey95",
+                                                    "UK-PostF" = "grey40"))
 
 {
-  
   g_heatmap_scale <- data_comp_auc %>%
-    select(-all_of(c(to_remove))) %>%
+    select(-all_of(to_remove)) %>%
     mutate(across(.cols = everything(), .fns = function(x) pmax(x,0))) %>%
     t() %>%
-  pheatmap::pheatmap(scale = "none",cutree_cols = 8, angle_col = 90, fontsize_row = 8, clustering_method = "ward.D", color = viridisLite::viridis(100), cluster_rows = FALSE, border_color = "grey40", cluster_cols = TRUE, annotation_col = data_comp_auc[,11:12], annotation_colors = annot_colors)
+    pheatmap::pheatmap(scale = "none", angle_col = 90, cutree_cols = 8, 
+                     clustering_method = "ward.D", 
+                     color = viridisLite::viridis(100), 
+                     cluster_rows = FALSE, border_color = "grey40", 
+                     cluster_cols = TRUE, 
+                     legend_breaks = c(0, 0.5, 1, 1.5, max(.)),
+                     legend_labels = c("0", "0.5", "1", "1.5", "Normalized\ncompetition\n"),
+                     annotation_col = data_comp_auc[,13:14], 
+                     annotation_colors = annot_colors, 
+                     cellwidth = 5, cellheight = 5, fontsize_row = 5, fontsize_col = 6, fontsize = 6)
  
-  ggsave(g_heatmap_scale,filename = paste0("../", result.dir, "/", "LOR_heatmap_auc_wardD.pdf"), width = 24, height = 10, units = "cm")
+  ggsave(g_heatmap_scale,filename = paste0("../", result.dir, "/", "LOR_heatmap_auc_wardD.pdf"), width = 18, height = 12, units = "cm")
 }
 
 ```
 
 ## Multidimensional scaling of competition between LOR mAbs
 
-This MDS is another way to visualize the same data showed on the heatmap above. Here, the MDS input is the euclidean distance. The data was scaled and centered prior calculating their euclidean distance, which is the most used and simplest distance calculation.  
+This MDS is another way to visualize the same data showed on the heatmap above. Here, the MDS input is the euclidean distance. The data was scaled and centered prior calculating their euclidean distance, which is the most used and simplest distance calculation.
+
+### Colored by epitope specificity
 
 ```{r mds_heatmap}
 
@@ -1446,6 +1634,7 @@ This MDS is another way to visualize the same data showed on the heatmap above. 
 to_habillage <- factor(rownames(data_comp_auc), levels = c(paste0("LOR", sprintf(fmt = "%02d",seq(1:106)))))
 
 data_comp_auc <- data_comp_auc %>% tibble::rownames_to_column("name") 
+to_remove <- c("epitope", "specificity", "IC50_RSV_A2")
 
 # compute MDS
 mds_scaled <- data_comp_auc %>%
@@ -1467,12 +1656,115 @@ p1 <- mds_scaled %>%
   scale_color_manual(values = annot_colors[["epitope"]]) +
   ggprism::theme_prism(base_fontface = "plain", border = TRUE, base_line_size = 1) +
   theme(axis.ticks = element_line(size = .5),
-        aspect.ratio = 1,
-        legend.position = "none") 
+        aspect.ratio = 1) 
 
 plotly::ggplotly(p1)
 
-ggsave(width = 5, height = 3,filename = paste0("../", result.dir, "mds_euclidean-distance-plus-binding.pdf"))
+ggsave(plot = p1, width = 5, height = 3,filename = paste0("../", result.dir, "mds_euclidean-distance-sites.pdf"))
+```
+
+### Colored by RSV neutralization
+
+```{r mds_neuts}
+p2 <- mds_scaled %>%
+  left_join(data_comp_auc) %>%
+  ggplot(aes(Dim.1,Dim.2, label = name, color = IC50_RSV_A2)) +
+  geom_point(size = 2) +
+  ggrepel::geom_text_repel(max.overlaps = 5) +
+  scale_color_viridis_c() +
+  ggprism::theme_prism(base_fontface = "plain", border = TRUE, base_line_size = 1) +
+  labs(color = "IC50 RSV\n(log10)")+
+  theme(axis.ticks = element_line(size = .5),
+        aspect.ratio = 1) 
+
+plotly::ggplotly(p2)
+
+ggsave(plot = p2, width = 5, height = 3,filename = paste0("../", result.dir, "mds_euclidean-distance-neuts.pdf"))
+```
+
+
+## Processing and merging LOR metadata
+
+```{r processing_heavy_and_light_chains}
+mabs_lors <- mabs_lors %>%
+  filter(name %in% lor_mabs$well_ID) %>%
+  mutate(mAbs_ID = plyr::mapvalues(name, from = lor_mabs$well_ID, to = lor_mabs$LOR)) %>%
+  arrange(mAbs_ID) %>%
+  relocate(mAbs_ID)
+
+mabs_clonal_rank <- rds_summary
+for(i in mabs_lors$name) {
+  mabs_clonal_rank[[i]] <- ifelse(grepl(i, rds_summary$sc_clone_grp), 
+                                  mabs_lors[mabs_lors$name == i,]$mAbs_ID, 
+                                  NA)
+}
+
+col_combine <- colnames(mabs_clonal_rank[15:length(mabs_clonal_rank)])         
+mabs_clonal_rank <- mabs_clonal_rank %>%  
+  mutate(LOR = purrr::invoke(coalesce, across(all_of(col_combine)))) %>%
+  select(LOR, colnames(mabs_clonal_rank)[! colnames(mabs_clonal_rank) %in% col_combine]) %>%
+  filter(!is.na(LOR), database == "Individualized", Timepoint == "B2") %>%
+  arrange(LOR) %>%
+  mutate(well_ID = plyr::mapvalues(LOR, from = lor_mabs$LOR, to = substr(lor_mabs$well_ID, 1,3))) %>%
+  filter(ID == well_ID)
+  
+mabs_lors <- mabs_lors %>% 
+  mutate(clonal_rank_B2 = plyr::mapvalues(mAbs_ID, from = mabs_clonal_rank$LOR, to = mabs_clonal_rank$clonal_size_rank),
+         clonal_size_B2 = plyr::mapvalues(mAbs_ID, from = mabs_clonal_rank$LOR, to = mabs_clonal_rank$clonal_size),
+         clonal_group = plyr::mapvalues(mAbs_ID, from = mabs_clonal_rank$LOR, to = mabs_clonal_rank$grp)) %>%
+  relocate(mAbs_ID, clonal_rank_B2, clonal_size_B2, clonal_group)
+
+# Fixed manually LOR24 (same as LOR19), LOR37 (not detected B2, clonal size sc = 1), LOR40 (not detected B2, clonal size sc = 1 ), LOR42 (same clone as LOR01), LOR94 (same clone as LOR01), LOR96 (not detected B2, clonal size sc = 4)
+
+#mabs_lors %>% write.csv(paste0("../data/single_cell/LOR_mAbs_info.csv"), row.names = F)
+mabs_lors <- read.csv(file = paste0("../data/single_cell/LOR_mAbs_info.csv"), sep = ",")
+
+mabs_lors %>%
+  left_join(data_comp_auc %>% tibble::rowid_to_column("mAbs_ID") %>% mutate(mAbs_ID = as.character(name)), by = "mAbs_ID") %>%
+ggplot(aes(x = clonal_rank_B2, y = clonal_size_B2, color = epitope)) +
+  geom_point(size = 3) +
+  scale_color_manual(values = annot_colors[["epitope"]]) +
+  scale_y_log10() +
+  scale_x_log10() +
+  labs(fill = "Animal ID", x = "Clonal rank\n(log10)", y = "Clonal size\n(log10)") +
+  ggprism::theme_prism(base_fontface = "plain", border = TRUE, base_line_size = 1) +
+  theme(axis.ticks = element_line(size = .5))
+
+```
+
+## Heavy and light chain paired V genes
+
+```{r HV_LV_paired_plot}
+merged_mabs_lors <- mabs_lors %>%
+  left_join(clonotype_rsv, by = "name") %>%
+  left_join(clono_light_chains,suffix = c("_HC","_LC"), by = "name") %>%
+  mutate(v_call_HC = V_gene.x) %>%
+  fill(v_call_LC)
+
+write.csv(merged_mabs_lors, file = "../data/single_cell/LOR_mAbs_info_full.csv", row.names = F)
+
+merged_mabs_lors %>%
+  group_by(v_call_HC, v_call_LC) %>%
+  mutate(mabs_counts = n()) %>%
+  ggplot(aes(x= v_call_HC, y = v_call_LC, fill = mabs_counts)) +
+    geom_tile(color = "black") +
+    scale_fill_viridis_c(option = "viridis", direction = 1) +
+    scale_y_discrete(position = "right") +
+    labs(fill = "mAb counts", x = "IGHV alleles", y = "IGHJ alleles") + 
+    coord_equal() +
+    ggprism::theme_prism(base_fontface = "plain", border = TRUE, base_line_size = 1) +
+     theme(axis.text.x = element_text(angle = 90, size = 6, hjust = 1, 
+                                     vjust = 0.5, face = "bold", colour = "black"),
+          axis.text.y = element_text(face = "bold", colour = "black", size = 6),
+          strip.text = element_text(face = "bold"),
+          panel.grid.major = element_blank(), 
+          panel.grid.minor = element_blank(),
+          legend.position =  "right",
+          axis.ticks = element_line(size = .5),
+          legend.title = element_text())
+      
+  
+
 ```
 
 # Take environment snapshot

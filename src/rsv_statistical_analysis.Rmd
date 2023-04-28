@@ -1,0 +1,928 @@
+---
+title: "Statistical analysis: Multivalent Antigen Display on Nanoparticles Elicits Diverse and Broad B cell Responses"
+author: "Rodrigo Arcoverde Cerveira"
+date: '`r format(Sys.Date(), "%Y-%m-%d")`'
+output: 
+ html_document:
+    toc: true
+    depth: 2
+    toc_float: true
+    number_sections: true
+ github_document:
+    preview_html: false
+abstract: Here you can find the statistical analysis and plots generated in R for the paper entitled "Multivalent Antigen Display on Nanoparticles Elicits Diverse and Broad B cell Responses"
+knit: (function(inputFile, encoding) {
+          rmarkdown::render(inputFile,
+                            encoding = encoding, 
+                            output_file = paste0(
+                              xfun::sans_ext(inputFile), '_', '.html'))})
+---
+
+```{r setup, include=FALSE}
+knitr::opts_knit$set(
+  echo = TRUE,
+  root.dir = getwd(),
+  fig.width = 6, fig.height = 5, fig.align='center',
+  warning = FALSE,
+  message = FALSE
+)
+knitr::opts_chunk$set(
+  warning = FALSE,
+  echo = TRUE,
+  message = FALSE
+)
+
+result.dir <- paste0("results/", Sys.Date(), "/")
+
+# creates result.dir with date in if not existent
+ifelse(isFALSE(dir.exists(paste0("../", result.dir))), dir.create(paste0("../", result.dir), recursive = TRUE), "Result directory for today exists already!")
+options(stringsAsFactors = FALSE)
+```
+
+# Abstract
+
+This `Rmarkdown` provides the analysis for the processed data in the paper entitled "Multivalent Antigen Display on Nanoparticles Diversifies B Cell Responses". It includes mainly the statistical analysis and plots included in this project.
+
+# Needed libraries
+
+Loaded libraries need to be present.
+
+```{r libraries, message=FALSE, results='hide'}
+library(jsonlite)
+library(tidyr)
+library(treeio)
+library(ggtree)
+library(rstatix)
+library(ggpubr)
+library(Biostrings)
+library(data.table)
+library(vegan)
+library(ggplot2)
+library(scales)
+library(ggprism)
+library(dplyr)
+library(forcats)
+library(kableExtra)
+source("df_to_fasta.R")
+set.seed(123)
+```
+
+# Load data
+
+Some data used here is stored as `.rds` format, but it can also be found as `.tsv` at Zenodo (DOI: 000000000).
+
+```{r load_rds, results='hide'}
+data_comp <- read.csv("../data/ELISA_comp/2023-03-06_normalized_plasma_compt.csv") %>%
+  mutate(group = case_when(group == "NP 100%" ~ "20-mer",
+                           group == "NP 50%" ~ "10-mer",
+                           group == "Sol" ~ "1-mer",
+                           group == "PostF" ~ "PostF"))
+
+clonotype_rsv <- readRDS("../data/clonotypes/individualized/rsv-specific_clonotypes.rds")
+
+
+# replace column names for AIRR-compliant names and filter out "PV" timepoint which was not used for the analysis
+clonotype_rsv <- clonotype_rsv %>%
+  filter(timepoint != "PV") %>%
+  mutate(cdr3_aa_length = nchar(CDR3_aa),
+         cdr3_aa = CDR3_aa,
+         v_call = V_gene,
+         j_call = J_gene,
+         d_call = D_gene) 
+
+# set color for fill and color aes layers
+fill_col_values <- c("20-mer" = "#5F90B0", "10-mer" = "#92CDD5", "1-mer" = "#D896C1", "PostF" = "grey50")
+color_values <- c("20-mer" = "#2E6997", "10-mer" = "#469698", "1-mer" = "#BE3C8C", "PostF" = "grey20")
+ 
+# load repertoire sequencing reads info
+rep_seq_ls <- list.files("../data/processed_data/rep_seq", pattern = "stats.json", recursive = TRUE, full.names = TRUE)
+rep_seq_names <- list.files("../data/processed_data/rep_seq", pattern = "stats.json", recursive = TRUE, full.names = FALSE)
+names(rep_seq_ls) <- sub("_st","",gsub("/","_",substr(rep_seq_names, 1,10)))
+
+# load mAbs data
+lor_mabs <- read.csv("../data/specificity/LOR_single-cells_characterized.csv")
+mabs_lors <- read.csv("../data/single_cell/sc_summary_filtered.csv")
+
+# load competition ELISA data
+# edited the raw values to have the max value as the reference competition for ADI, MPE8, 101F, D25
+data_comp_auc <- read.csv("../data/ELISA_comp/2023-04-28_LOR_norm-dAUC.csv", header = T, row.names = 1, encoding="UTF-8") %>%
+  replace(is.na(.), 0) %>%
+  mutate(specificity = factor(specificity, levels = c("PreF", "PreF/PostF", "PostF", "w.b.")),
+         epitope = factor(epitope, levels = c("Ø","V", "IV","III", "II","I", "foldon", "UK-Pre","UK-DP","PostF", "WB")))
+
+# load light chains information clonotyped
+clono_light_chains <- read.table("../data/clonotypes/light_chain_assigned_clonotypes.tsv", sep = "\t", header = TRUE) 
+```
+
+# Plasma profiling
+
+The non-human primates plasma samples from this study were used for antibody competition ELISAs coated with pre-fusion or post-fusion proteins against previously characterized monoclonal antibodies. Here we show this data using different visualization methods.
+
+## Multidimensional scaling (MDS)
+
+Multidimensional scaling aims to conserve distances between datapoints and/or samples from a set of variables. Thus, closer a point is to each other, closer their competition profile in this case. It is a good way to summarize in a 2D-space a large number of variables. The MDS input is a dissimilarity matrix, for this plot the input the matrix is based on cosine distance. Although the euclidean distance is the most used, we have decided to use the cosine distance here because the magnitude of responses are less important than the competition profile itself for us. Some NHPs were really good responders, thus having higher titers for all the competitions, thus euclidean distance would drive them far away from all the other NHPs because of their high antibody titer. Since cosine distance takes into account the distance as an angle rather than the value itself, it does not take into account the weight or the magnitude of the antibody titers.
+
+```{r mds_processing, echo=FALSE, results='hide'}
+cosine_distance <- function(x) {
+#For cosine similarity matrix
+Matrix <- x %>% 
+  select(-c(timepoints, ID, group)) %>%
+  as.matrix()
+sim <- Matrix / sqrt(rowSums(Matrix * Matrix))
+sim <- sim %*% t(sim)
+#Convert to cosine dissimilarity matrix (distance matrix).
+D_sim <- as.dist(1 - sim)
+
+mds <- D_sim %>%       
+  cmdscale(3) %>%
+  as_tibble()
+colnames(mds) <- c("Dim.1", "Dim.2", "Dim.3")
+
+mds <- mds %>%
+  mutate(group = x$group,
+         timepoints = x$timepoints,
+         ID = x$ID)
+return(mds)
+}
+```
+
+## Plasma profiling with MDS divided by timepoint
+
+The code below plots 4 different MDS plots. They are divided between 2 weeks after Boost 1 (B1) and Boost 2 (B2), with or without animals vaccinated with PostF immunogen. On the top of each plot, it is written B1 or B2, and legends say if PostF animals are included or not. The cosine distance was calculated separately using the custom `cosine_distance()` provided above, for that reason, position of points should not be compared directly between each plot but rather with points within each plot.
+
+```{r mds_per_timepoint}
+# calculate cosine distance and generate MDS with and without PostF
+mds_b1 <- data_comp %>% filter(timepoints == "B1") %>% cosine_distance()
+mds_b2 <- data_comp %>% filter(timepoints == "B2") %>% cosine_distance()
+mds_no_postf_b1 <- data_comp %>% filter(group != "PostF", timepoints == "B1") %>% cosine_distance()
+mds_no_postf_b2 <- data_comp %>% filter(group != "PostF", timepoints == "B2") %>% cosine_distance()
+ls_mds <- list(mds_b1, mds_b2, mds_no_postf_b1, mds_no_postf_b2)
+
+plot_list <- list()
+for(f in seq_along(ls_mds)){
+# Plot and color by groups
+    mds_plot <- ls_mds[[f]]
+    if(f == 2){
+      mds_plot$Dim.1 <- mds_plot$Dim.1 * -1 # flip axis in first dimension
+    }
+    
+    plot <- mds_plot %>%
+      ggplot(aes(Dim.1, Dim.2, color = group, fill = group)) + 
+      geom_point(size = 4, shape = 21) +
+      scale_fill_manual(values = fill_col_values) +
+      scale_color_manual(values = color_values) +
+      lims(x = c(-.5,.5), y = c(-.4, .4)) + 
+      ggprism::theme_prism(base_fontface = "plain", border = TRUE, base_line_size = 1) +
+      theme(axis.ticks = element_line(size = .5),
+            legend.position = c(.1,.2),
+            legend.background = element_blank(),
+            legend.box.background = element_rect(colour = "black")) +
+      facet_wrap(~timepoints)
+    
+  plot_list[[f]] <- plot
+    ggsave(plot = plot, filename = paste0("../", result.dir, f,"_mds_cosine-distance.pdf"), device = "pdf", width = 4, height = 4)
+}
+
+ggarrange(plot_list[[3]], plot_list[[4]], plot_list[[1]], plot_list[[2]], ncol = 2, nrow = 2, common.legend = TRUE,legend = "top", legend.grob = get_legend(plot_list[[2]] + theme(legend.position = "top")) )
+
+
+```
+
+## Competition titers as bar plots
+
+### Competition for epitopes on Pref
+
+```{r competition_bars_pref}
+
+data_comp_longer <- data_comp %>%
+  pivot_longer(cols = 2:9, names_to = "mAb", values_to = "ELISA_competition") %>%
+  mutate(epitopes = plyr::mapvalues(mAb, 
+                                    from = c("D25.PreF", "MPE8.PreF", "ADI.PreF", "Pali.PreF", "X101F.PreF",
+                                             "ADI.PostF", "X101F.PostF", "Pali.PostF"), 
+                                    to = c("Ø", "III", "I", "II", "IV",
+                                           "I", "IV", "II")),
+         epitopes = factor(epitopes, levels = c("Ø", "III", "IV", "II", "I")),
+         conformation = factor(case_when(grepl("PostF", mAb) ~ "PostF",
+                                  grepl("PreF", mAb) ~ "PreF"), levels = c("PreF", "PostF")),
+        timepoint_group = paste(timepoints, group, sep = "_"),
+        timepoint_group_epitope = paste(timepoints, group, epitopes, sep = "_")) 
+
+data_comp_longer_noPostF <- data_comp_longer %>%
+  filter(group != "PostF")
+
+my_comparisons_sites <- list(c("B1_1-mer", "B1_20-mer"),
+                       c("B1_1-mer", "B1_10-mer"),
+                       #c("B1_1-mer", "B1_PostF"),
+                       c("B1_10-mer", "B1_20-mer"),
+                       #c("B1_10-mer", "B1_PostF"),
+                       #c("B1_20-mer", "B1_PostF"),
+                       c("B2_1-mer", "B2_20-mer"),
+                       c("B2_1-mer", "B2_10-mer"),
+                       #c("B2_1-mer", "B2_PostF"),
+                       #c("B2_10-mer", "B2_PostF"),
+                       #c("B2_20-mer", "B2_PostF"),
+                       c("B2_10-mer", "B2_20-mer")
+                       )
+
+my_comparisons_1 <- lapply(my_comparisons_sites, paste0, "_I")
+my_comparisons_2 <- lapply(my_comparisons_sites, paste0, "_II")
+my_comparisons_3 <- lapply(my_comparisons_sites, paste0, "_III")
+my_comparisons_4 <- lapply(my_comparisons_sites, paste0, "_IV")
+my_comparisons_5 <- lapply(my_comparisons_sites, paste0, "_Ø")
+
+# Selecting sites for statistical comparison only between groups for each timepoint
+# removed statistical comparisons for Boost 1 site I in PreF since most values were below the threshold of detection
+my_comparisons_preF <- c(my_comparisons_1[4:6], my_comparisons_2, my_comparisons_3, my_comparisons_4, my_comparisons_5)
+
+# code removed to not include postF
+#my_comparisons_preF <- c(my_comparisons_1[7:12], my_comparisons_2, my_comparisons_3, my_comparisons_4, my_comparisons_5)
+
+my_comparisons_postF <- c(my_comparisons_1, my_comparisons_2, my_comparisons_4)
+  
+
+stat.test <- data_comp_longer_noPostF %>%
+  filter(conformation == "PreF") %>%
+  wilcox_test(formula = ELISA_competition ~ timepoint_group_epitope, 
+              paired = FALSE, 
+              p.adjust.method = "fdr", 
+              comparisons = my_comparisons_preF)
+
+stat.test %>%
+  kable %>%
+  kable_styling("striped") %>% 
+ scroll_box(height = "200px")
+
+data_comp_longer_noPostF %>%
+  filter(conformation == "PreF") %>%
+  ggplot(aes(x = timepoint_group,
+            y = ELISA_competition,
+            color = group,
+            fill = group)) +
+  geom_point(size = 2, shape = 21) +
+  scale_fill_manual(values = fill_col_values) +
+  scale_color_manual(values = color_values) +
+  ggprism::theme_prism(base_fontface = "plain", border = TRUE, base_line_size = .5) +
+  scale_y_log10() +
+  stat_summary(fun.y = mean, 
+               geom = "crossbar",
+               color = "black") +
+  geom_hline(yintercept = 10, linetype = "dashed") +
+  labs(title = "PreF Antigenic Sites", y = "50% Competition Titer", x = "") +
+  theme(axis.ticks = element_line(size = .5),
+        legend.background = element_blank(),
+        axis.text.x = element_text(angle = 45, vjust = 1, hjust=1, size = 7)) +
+  facet_wrap(~epitopes, nrow = 1) 
+
+```
+
+### Competition for epitopes on Pref
+
+```{r competition_bars_postf}
+
+stat.test <- data_comp_longer_noPostF %>%
+  filter(conformation == "PostF") %>%
+  wilcox_test(formula = ELISA_competition ~ timepoint_group_epitope, 
+              paired = FALSE, 
+              p.adjust.method = "fdr", 
+              comparisons = my_comparisons_postF) %>%
+  add_xy_position()
+
+stat.test %>%
+  kable %>%
+  kable_styling("striped") %>% 
+ scroll_box(height = "200px")
+
+data_comp_longer_noPostF %>%
+  filter(conformation == "PostF") %>%
+  ggplot(aes(x = timepoint_group,
+            y = ELISA_competition,
+            color = group,
+            fill = group)) +
+  geom_point(size = 2, shape = 21) +
+  scale_fill_manual(values = fill_col_values) +
+  scale_color_manual(values = color_values) +
+  ggprism::theme_prism(base_fontface = "plain", border = TRUE, base_line_size = .5) +
+  scale_y_log10() +
+  stat_summary(fun.y = mean, 
+               geom = "crossbar",
+               color = "black") +
+  geom_hline(yintercept = 10, linetype = "dashed") +
+  labs(title = "PostF Antigenic Sites", y = "50% Competition Titer", x = "") +
+  theme(axis.ticks = element_line(size = .5),
+        legend.background = element_blank(),
+        axis.text.x = element_text(angle = 45, vjust = 1, hjust=1, size = 7)) +
+  facet_wrap(~epitopes, nrow = 1) 
+
+```
+
+
+```{r shm_avg_dbs_processing, echo=FALSE, results='hide'}
+
+ls <- list.files("../data/clonotypes", recursive = T, full.names = T)
+ls <- ls[grepl("rsv", ls) & grepl("individualized|nestor-rm", ls) ]
+names(ls) <- basename(dirname(ls))
+rds_merge <- lapply(ls, readRDS)
+rds_merge <- rbindlist(rds_merge, idcol = TRUE, fill = TRUE)
+rds_merge <- rds_merge %>%
+  select(.id, specificity_group, sc_clone_grp, grp, new_name, ID_timepoint, V_SHM, V_errors, CDR3_aa, cdr3_aa, V_gene, J_gene, v_call, j_call) %>%
+  mutate(
+    Timepoint = factor(gsub(".*_", "", ID_timepoint), levels = c("PV", "B1", "B2", "Single-cell")),
+    ID = gsub("_.*", "", ID_timepoint),
+    database = plyr::mapvalues(.id,
+      from = c("nestor-rm", "individualized"),
+      to = c("KIMDB", "Individualized")
+    ),
+    database = factor(database, levels = c("KIMDB", "Individualized")),
+    Group = plyr::mapvalues(
+      ID, c(
+        "E11", "E16", "E17", "E23", "E24",
+        "E12", "E14", "E18", "E21"
+      ),
+      c(
+        "20-mer", "20-mer", "20-mer", "20-mer", "20-mer",
+        "1-mer", "1-mer", "1-mer", "1-mer"
+      )
+    ),
+    cdr3_aa_length = ifelse(is.na(CDR3_aa), nchar(cdr3_aa), nchar(CDR3_aa)),
+    v_call = ifelse(is.na(v_call), V_gene, v_call),
+    j_call = ifelse(is.na(j_call), J_gene, j_call)
+  ) %>%
+  group_by(.id, ID_timepoint) %>%
+  distinct(new_name, .keep_all = TRUE) %>%
+  ungroup() %>%
+  filter(database %in% c("KIMDB", "Individualized"))
+
+```
+
+## Plot number of sequences per animal
+
+Plotting sequencing depth for each timepoint per animal. This indicates that the sequencing depth for Boost 1 was lower, thus for that reason all the analysis were normalized by sequencing depth to take that into account. 
+
+```{r sequencing_depth}
+# samples from BR2-B2 from E17 were merged with TR1-B2
+# this was done due to low sequencing depth for that animal and large expansion of uncharacterized clones 
+full_rep_indiv <- read.table("../data/processed_data/summary_sequencing_table.tsv", 
+                             header = TRUE) %>%
+  separate(ID, sep = "_", into = c("sample", "ID")) %>%
+  filter(sample != "TR2-B2") %>%
+  mutate(sample = ifelse(sample == "BR2-B2", "TR1-B2", sample),
+         timepoint = case_when(sample == "igm" ~ "PV",
+                            grepl("B1", sample) ~ "B1",
+                            grepl("B2", sample) ~ "B2"),
+         timepoint = factor(timepoint, levels = c("PV", "B1", "B2"))) %>%
+  group_by(timepoint, ID) %>%
+  summarise(across(where(is.numeric), sum)) %>%
+  ungroup()
+  
+# since here we wanted to compare all groups, we used Dunn's test
+stat.test <- full_rep_indiv %>%
+              dunn_test(formula = assignment_filtering.has_cdr3 ~ timepoint,
+                          p.adjust.method = "fdr") %>%
+  add_xy_position()
+
+stat.test %>%
+  kable %>%
+  kable_styling("striped") %>% 
+ scroll_box(height = "200px")
+
+full_rep_indiv %>%
+  ggdotplot(y = "assignment_filtering.has_cdr3", x = "timepoint", 
+            group = "timepoint", 
+            fill = "ID", 
+            size = 1,) +
+  geom_boxplot(alpha = .2, outlier.shape = NA) +
+  ggpubr::stat_compare_means(method = "kruskal") +
+  labs(x = "Timepoint", y = "# good quality aligned sequences") +
+  scale_fill_viridis_d() +
+  stat_pvalue_manual(stat.test %>% mutate(p.adj = round(p.adj, 4)), label = "p.adj") +
+   ggprism::theme_prism(base_fontface = "plain", border = T, base_line_size = 1, axis_text_angle = 45, base_rect_size = 1.5)
+
+ggsave(paste0("../", result.dir, "repertoire_depth.pdf"), width = 5, height = 3)
+
+```
+
+
+```{r plot_clonotypes, echo = FALSE, results='hide'}
+
+rds_summary <- rds_merge %>%
+  group_by(database, ID_timepoint, grp) %>%
+  summarise(
+    ID = first(ID), Timepoint = first(Timepoint), Group = first(Group),
+    clonal_size = n(),
+    database,
+    sc_clone_grp = first(sc_clone_grp),
+    V_errors = mean(V_errors),
+    specificity_group = first(specificity_group),
+    cdr3_aa_length = mean(cdr3_aa_length),
+    v_call = first(v_call),
+    j_call = first(j_call)
+  ) %>%
+  ungroup() %>%
+  group_by(database, ID_timepoint) %>%
+  mutate(clonal_size_rank = dense_rank(dplyr::desc(clonal_size))) %>%
+  ungroup() %>%
+  distinct()
+
+rds_summary_noPV <- rds_summary %>%
+  filter(Timepoint != "PV", Timepoint != "Single-cell")
+
+rds_summary_save <- rds_summary %>%
+  filter(Timepoint %in% c("Single-cell", "B1","B2"),
+         database == "Individualized") %>%
+  group_by(ID_timepoint) %>%
+  summarise(mean_clonal_size = mean(clonal_size),
+            median_clonal_size = median(clonal_size),
+            geom_clonal_size = exp(mean(log(clonal_size))),
+            unique_clones = sum(clonal_size == 1),
+            total_clones_detected = n(),
+            percentage_unique_clones = round(unique_clones/total_clones_detected*100,digits = 2)) 
+
+rds_summary_save %>%
+  kable %>%
+  kable_styling("striped") %>% 
+ scroll_box(height = "200px")
+
+write.csv(rds_summary_save, 
+          paste0("../", result.dir, "clone_size_mean_median.csv"),row.names = FALSE)
+
+```
+
+
+
+```{r indv_lors_plot, echo=FALSE, results='hide'}
+rds_indiv <- rds_summary %>%
+  filter(
+    database == "Individualized",
+    Timepoint != "Single-cell",
+    Timepoint != "PV"
+  ) %>%
+  mutate(
+    LOR = ifelse(grepl(pattern = paste0(lor_mabs$well_ID, collapse = "|"), x = sc_clone_grp), "cloned", "not_cloned"),
+    LOR = factor(LOR, levels = c("cloned", "not_cloned"), ordered = TRUE)
+  )
+rds_indiv$Timepoint <- droplevels(rds_indiv$Timepoint)
+all <- rds_indiv %>%
+  tidyr::expand(ID, Timepoint, grp) %>%
+  filter(Timepoint != "Single-cell")
+
+rds_indiv <- rds_indiv %>%
+  right_join(all) %>%
+  mutate(
+    ID_timepoint = paste(ID, Timepoint, sep = "_"),
+    database = "individualized",
+    clonal_size = ifelse(is.na(clonal_size), 0, clonal_size)
+  ) %>%
+  arrange(grp, ID_timepoint) %>%
+  tidyr::fill(LOR, Group, sc_clone_grp)
+
+```
+
+## Count unique V-J pairs
+
+```{r count_unique}
+# groups to perform statistical comparisons
+my_comparisons <- list(c("Total_B1_20-mer", "Total_B1_1-mer"),
+                       c("Total_B2_20-mer", "Total_B2_1-mer"),
+                       c("PreF_B1_20-mer", "PreF_B1_1-mer"),
+                       c("PreF_B2_20-mer", "PreF_B2_1-mer"),
+                       c("DP_B1_20-mer", "DP_B1_1-mer"),
+                       c("DP_B2_20-mer", "DP_B2_1-mer"))
+
+rds_summary_noPV <- rds_summary %>%
+  # If want to remove clonal sizer < 1, do it here.
+  filter(database == "Individualized", Timepoint != "Single-cell", Timepoint != "PV") %>%
+  rbind(., within(., specificity_group <- "Total")) %>%
+  filter(specificity_group != "PostF") %>%
+  mutate(Group_specificity = paste(specificity_group, Timepoint, Group, sep = "_"),
+         Group_specificity = factor(Group_specificity, levels = c("Total_B1_20-mer", "Total_B1_1-mer", "Total_B2_20-mer", "Total_B2_1-mer", "PreF_B1_20-mer", "PreF_B1_1-mer", "PreF_B2_20-mer", "PreF_B2_1-mer", "DP_B1_20-mer", "DP_B1_1-mer", "DP_B2_20-mer", "DP_B2_1-mer"))) %>%
+  group_by(ID_timepoint, specificity_group, Group_specificity, Group) %>%
+  mutate(v_j_calls = paste(v_call,j_call, sep = "_")) %>%
+  distinct(v_j_calls) %>%
+  summarise(unique_v_j = n()) %>%
+  ungroup()
+
+rds_summary_noPV %>% write.csv(paste0("../", result.dir,"unique_HV_HJ_pairing-data.csv"), row.names = F)
+
+stat.test <- rds_summary_noPV %>%
+              wilcox_test(formula = unique_v_j ~ Group_specificity, 
+                          comparisons = my_comparisons, 
+                          p.adjust.method = "fdr", 
+                          paired = FALSE) %>%
+  add_xy_position()
+
+stat.test %>%
+  kable %>%
+  kable_styling("striped") %>% 
+ scroll_box(height = "200px")
+
+rds_summary_noPV %>%
+  ggpubr::ggdotplot(x = "Group_specificity", y = "unique_v_j", 
+                    fill = "Group", 
+                    color = "Group",
+                    group = "Group_specificity", 
+                    legend = "none", size = 1) +
+  geom_vline(xintercept = seq(2.5,12,2), linetype = "dotted") +
+  scale_y_continuous(expand = c(0, 0), limits = c(0, 200)) +
+  scale_x_discrete(expand = c(0, 0)) +
+  scale_fill_manual(values = fill_col_values) +
+  scale_color_manual(values = color_values) +
+  labs(y = "HV and HJ unique pairs\n(Count)", x = "") +
+  stat_summary(fun.y = mean, 
+               geom = "crossbar") +
+  stat_pvalue_manual(stat.test, label = "p.adj", y.position = 150) +
+  ggprism::theme_prism(base_fontface = "plain", border = T, base_line_size = .5, axis_text_angle = 45) +
+  theme(axis.ticks = element_line(size = .5),
+        legend.position = "none")
+
+ggsave(paste0("../", result.dir, "v-j-pair_count.pdf"), width = 5, height = 3)
+```
+
+```{r ven_diagram, echo = FALSE, results='hide'}
+
+rds_summary_noPV <- rds_summary %>%
+  # decide if clonal size greater than 1 should be included
+  filter(database == "Individualized", Timepoint != "Single-cell") %>%
+  rbind(., within(., specificity_group <- "Total")) %>%
+  filter(specificity_group != "PostF") %>%
+  mutate(Group_specificity = paste(specificity_group, Timepoint, Group, sep = "_"),
+         Group_specificity = factor(Group_specificity, levels = c("Total_B1_20-mer", "Total_B1_1-mer", "Total_B2_20-mer", "Total_B2_1-mer", "PreF_B1_20-mer", "PreF_B1_1-mer", "PreF_B2_20-mer", "PreF_B2_1-mer", "DP_B1_20-mer", "DP_B1_1-mer", "DP_B2_20-mer", "DP_B2_1-mer"))) %>%
+  group_by(Group) %>%
+  mutate(v_j_calls = paste(v_call,j_call, sep = "_")) %>%
+  distinct(v_j_calls) 
+```
+
+# Generate processed files for diversity index estimation
+
+Intermediate files are commented out, so it will not save all of them. One could uncomment them if all the intermediate files are needed. Intermediate files were used to run `Recon (v2.5)` (Kaplinsky & Arnaout, *Nat Commmun*, 2016) according to default parameters, more about running Recon is described in the next section [Recon estimates for RSV-specific diversity].
+
+```{r rsv_per_timepoint_specificity, echo = FALSE, results='hide'}
+# add column for loop of ID, timepoint and specificity
+clonotype_rsv <- clonotype_rsv %>%
+  mutate(ID_timepoint_spec = paste0(ID_timepoint, "_", specificity_group))
+
+# create empty lists for loop
+filtered_animal_rsv <- list()
+clonotype_summary_rsv <- list()
+
+# loop to create summary and full clonotype files for saving and/or following analysis
+for (animals in unique(clonotype_rsv$ID_timepoint_spec)) {
+  # save full clonotype files
+  filtered_animal_rsv[[animals]] <- clonotype_rsv %>%
+    filter(ID_timepoint_spec == animals) %>%
+    as.data.frame()
+ # write.csv(filtered_animal_rsv[[animals]], paste0("../", result.dir, animals, "_clonotype_full.csv"), row.names = FALSE)
+
+  # save summary files
+  clonotype_summary_rsv[[animals]] <- filtered_animal_rsv[[animals]] %>%
+    group_by(grp, timepoint, ID, specificity_group, ID_timepoint_spec) %>%
+    summarise(clonal_size = n(), first(v_call), first(j_call), first(cdr3_aa)) %>%
+    arrange(desc(clonal_size)) %>%
+    ungroup()
+  #write.csv(clonotype_summary_rsv[[animals]], paste0("../", result.dir, animals, "_rsv_clonotype_summary.csv"), row.names = FALSE)
+  }
+
+# doing the same thing but for total, that means not account for specificities (PreF, DP,PostF)
+for (animals in unique(clonotype_rsv$ID_timepoint)) {
+  # save summary files
+  clonotype_summary_rsv[[paste0(animals, "_total")]] <- clonotype_rsv %>%
+    filter(ID_timepoint == animals) %>%
+    as.data.frame() %>%
+    mutate(
+      specificity_group = "Total",
+      ID_timepoint_spec = paste0(ID_timepoint, "_", specificity_group)
+    ) %>%
+    group_by(grp, timepoint, ID, specificity_group, ID_timepoint_spec) %>%
+    summarise(clonal_size = n(), first(v_call), first(j_call), first(cdr3_aa)) %>%
+    arrange(desc(clonal_size)) %>%
+    ungroup()
+ # write.csv(clonotype_summary_rsv[[animals]], paste0("../", result.dir, animals, "_rsv_clonotype_summary.csv"), row.names = FALSE)
+  }
+
+
+# Save clonotype summary per animal, taking into account ID, timepoint and clonal group
+filtered_animal_rsv_summary <- list()
+
+for (animals in unique(clonotype_rsv$ID)) {
+  # save summary files
+  clonotype_rsv %>%
+    filter(ID == animals) %>%
+    as.data.frame() %>%
+    group_by(grp, timepoint, ID) %>%
+    summarise(clonal_size = n(), single_cells = first(sc_clone_grp), v_call = first(v_call), j_call = first(j_call), cdr3_aa = first(cdr3_aa)) %>%
+    arrange(desc(clonal_size)) %>%
+    ungroup() 
+   # write.csv(paste0("../", result.dir, animals, "_rsv_clonotype_summary.csv"), row.names = FALSE)
+    }
+
+to_recon_rsv <- data.table::rbindlist(clonotype_summary_rsv) %>%
+  select(clonal_size, ID_timepoint_spec) %>%
+  group_by(clonal_size, ID_timepoint_spec) %>%
+  summarise(size = n()) %>%
+  ungroup()
+
+
+for (i in unique(to_recon_rsv$ID_timepoint_spec)) {
+  to_recon_table <- to_recon_rsv %>%
+    filter(ID_timepoint_spec == i) %>%
+    select(clonal_size, size)
+
+ # fwrite(to_recon_table, file = paste0("../", result.dir, i, "_rsv_file_to_recon.txt"), append = FALSE, sep = "\t", row.names = FALSE, col.names = FALSE)
+}
+```
+
+## Calculating Species richness
+
+### Chao1 estimates for RSV-specific diversity
+
+Species richness (Chao1) was calculated using the `vegan` r package. The samples were first subsampled 100 times for each animal/timepoint and then the species richness was estimated. The mean of those 100x replicates were used for plotting.
+
+
+```{r generate_chao1_estimates_rsv, echo = FALSE, results='hide'}
+
+rsv_chao <- lapply(clonotype_summary_rsv, function(x) select(x, "clonal_size"))
+
+
+# subsample and replicate the subsampling 100 times for higher accuracy
+
+chaox100 <- function(x, value_to_subsample) {
+  replicate(100, {
+    subsample <- vegan::rrarefy(x, value_to_subsample)
+    chao <- vegan::estimateR(subsample)
+    return(chao)
+  })
+}
+
+diff_spec_timepoints <- unique(substring(names(clonotype_summary_rsv), 5))
+
+# subsample based on lowest total clonotype size per group
+chao_list_results <- list()
+for (spec_timepoint in diff_spec_timepoints) {
+  print(spec_timepoint)
+  rsv_filtered <- rsv_chao[grepl(spec_timepoint, names(rsv_chao))]
+  min_to_subsample <- min(unlist(lapply(rsv_filtered, colSums)))
+  chao_list_results[[spec_timepoint]] <- lapply(rsv_filtered, chaox100, min_to_subsample)
+}
+
+change_names <- function(x) {
+  names(x) <- gsub("_.*", "", names(x))
+  x
+}
+
+# adjusted dataset for plotting
+{
+  chao_results_df <- purrr::map(chao_list_results, ~ change_names(.x))
+  chao_results_df <- rbindlist(chao_results_df, use.names = TRUE, idcol = TRUE, fill = TRUE)
+  chao_results_df$algorithm <- rep(c("Obs", "Chao1", "Chao1_se", "ACE", "ACE_se"), nrow(chao_results_df) / 5)
+  # save intermediate file
+  chao_results_df %>%
+    filter(algorithm %in% c("Chao1", "ACE")) %>%
+    dplyr::rename(Timepoint_specificity = .id) %>%
+    write.csv(paste0("../", result.dir, "rsv_repertoire_diversity.csv"), row.names = FALSE)
+  # diversity mean of x100 replicates per animal
+  chao_results_df %>%
+    filter(algorithm %in% c("Chao1", "ACE")) %>%
+    dplyr::rename(Timepoint_specificity = .id) %>%
+    group_by(algorithm, Timepoint_specificity) %>%
+    summarise_all(.funs = mean) %>%
+    write.csv(paste0("../", result.dir, "rsv_repertoire_diversity_mean.csv"), row.names = FALSE)
+
+  chao_results_df <- tidyr::pivot_longer(chao_results_df, cols = 2:(length(chao_results_df) - 1), names_to = c("ID")) %>%
+    tidyr::separate(.id, c("Timepoint", "Specificity"), sep = "_") %>%
+    mutate(Group = plyr::mapvalues(
+      ID, c(
+        "E11", "E16", "E17", "E23", "E24",
+        "E12", "E14", "E18", "E21"
+      ),
+      c(
+        "20-mer", "20-mer", "20-mer", "20-mer", "20-mer",
+        "1-mer", "1-mer", "1-mer", "1-mer"
+      )
+    ))
+}
+```
+
+### Chao1 plotting between groups for RSV-specific diversity
+
+Here is the plotting and comparison between vaccinated group:
+
+```{r plot_chao1}
+chao_results_df$Specificity[chao_results_df$Specificity == "total"] <- "Total"
+
+chao_results_df <- chao_results_df %>%
+  filter(algorithm != "Chao1_se" & algorithm != "ACE_se") %>%
+  filter(algorithm == "Chao1", Timepoint != "PV", Timepoint != "Single-cell",) %>%
+  mutate(Group = plyr::mapvalues(
+      ID, c(
+        "E11", "E16", "E17", "E23", "E24",
+        "E12", "E14", "E18", "E21"
+      ),
+      c(
+        "20-mer", "20-mer", "20-mer", "20-mer", "20-mer",
+        "1-mer", "1-mer", "1-mer", "1-mer"
+      )
+    ),
+    Group_specificity = paste(Specificity, Timepoint, Group, sep = "_"),
+    Group_specificity = factor(Group_specificity, levels = c("Total_B1_20-mer", "Total_B1_1-mer", "Total_B2_20-mer", "Total_B2_1-mer", "PreF_B1_20-mer", "PreF_B1_1-mer", "PreF_B2_20-mer", "PreF_B2_1-mer", "DP_B1_20-mer", "DP_B1_1-mer", "DP_B2_20-mer", "DP_B2_1-mer"))) %>%
+  group_by(ID, Group, Timepoint, Specificity, algorithm, Group_specificity) %>%
+  summarise(value = mean(value)) %>%
+  tidyr::drop_na() %>%
+  ungroup()
+
+write.csv(chao_results_df, paste0("../", result.dir, "chao1_results_plot_values.csv"), row.names = FALSE)
+
+
+stat.test <- chao_results_df %>%
+              wilcox_test(formula = value ~ Group_specificity, 
+                          comparisons = my_comparisons, 
+                          p.adjust.method = "fdr", 
+                          paired = FALSE) %>%
+  add_xy_position()
+
+stat.test %>%
+  kable %>%
+  kable_styling("striped") %>% 
+ scroll_box(height = "200px")
+
+chao_results_df %>%
+  ggpubr::ggdotplot(x = "Group_specificity", y = "value", 
+                    fill = "Group", 
+                    color = "Group",
+                    group = "Group_specificity", 
+                    legend = "none", size = 1) +
+  geom_vline(xintercept = seq(2.5,12,2), linetype = "dotted") +
+  scale_y_continuous(expand = c(0, 0), limits = c(0, 300)) +
+  scale_x_discrete(expand = c(0, 0)) +
+  scale_fill_manual(values = fill_col_values) +
+  scale_color_manual(values = color_values) +
+  labs(y = "Species richness\n(Chao1)", x = "") +
+  stat_summary(fun.y = mean, 
+               geom = "crossbar") +
+  stat_pvalue_manual(stat.test, label = "p.adj", y.position = 270) +
+  ggprism::theme_prism(base_fontface = "plain", border = T, base_line_size = .5, axis_text_angle = 45) +
+  theme(axis.ticks = element_line(size = .5),
+        legend.position = "none")
+
+
+ggsave(paste0("../", result.dir, "chao1_species_richness.pdf"), width = 5, height = 3)
+```
+
+### Recon estimates for RSV-specific diversity
+
+```{r recon_diversity_stats}
+
+recon_res <- read.table("../data/diversity_index/recon/rsv_output_diversity_table.txt", header = TRUE) %>%
+  filter(Timepoint != "PV", Timepoint != "Single-cell", Specificity != "PostF") %>%
+  mutate(Group = plyr::mapvalues(
+      ID, c(
+        "E11", "E16", "E17", "E23", "E24",
+        "E12", "E14", "E18", "E21"
+      ),
+      c(
+        "20-mer", "20-mer", "20-mer", "20-mer", "20-mer",
+        "1-mer", "1-mer", "1-mer", "1-mer"
+      )
+    ),
+   Group_specificity = paste(Specificity, Timepoint, Group, sep = "_")) %>%
+  mutate(Group_specificity = factor(Group_specificity, levels = c("Total_B1_20-mer", "Total_B1_1-mer", "Total_B2_20-mer", "Total_B2_1-mer", "PreF_B1_20-mer", "PreF_B1_1-mer", "PreF_B2_20-mer", "PreF_B2_1-mer", "DP_B1_20-mer", "DP_B1_1-mer", "DP_B2_20-mer", "DP_B2_1-mer"))) %>%
+  ungroup()
+
+write.csv(recon_res, paste0("../", result.dir, "recon_results_plot_values.csv"), row.names = FALSE)
+  
+
+stat.test <- recon_res %>%
+              wilcox_test(formula = est_0.0D ~ Group_specificity, 
+                          comparisons = my_comparisons, 
+                          p.adjust.method = "fdr", 
+                          paired = FALSE) %>%
+  add_xy_position()
+
+stat.test %>%
+  kable %>%
+  kable_styling("striped") %>% 
+ scroll_box(height = "200px")
+
+recon_res %>%
+  ggpubr::ggdotplot(x = "Group_specificity", y = "est_0.0D", 
+                    fill = "Group", 
+                    color = "Group",
+                    group = "Group_specificity", 
+                    legend = "none", size = 1) +
+  geom_vline(xintercept = seq(2.5,12,2), linetype = "dotted") +
+  scale_y_continuous(expand = c(0, 0), limits = c(0, 300)) +
+  scale_x_discrete(expand = c(0, 0)) +
+  scale_fill_manual(values = fill_col_values) +
+  scale_color_manual(values = color_values) +
+  labs(y = "Species richness\n(Recon)", x = "") +
+  stat_summary(fun.y = mean, 
+               geom = "crossbar") +
+  stat_pvalue_manual(stat.test, label = "p.adj", y.position = 270) +
+  ggprism::theme_prism(base_fontface = "plain", border = T, base_line_size = .5, axis_text_angle = 45) +
+  theme(axis.ticks = element_line(size = .5),
+        legend.position = "none")
+
+ggsave(paste0("../", result.dir, "recon_species_richness.pdf"), width = 5, height = 3)
+```
+
+
+## Somatic hypermutation comparisons
+
+### Somatic hypermutation over time for individualized database
+
+Here the SHM is shown for all the sequences for every animal combined. Data is divided by 20-mer, 1-mer, and specificities. T
+
+```{r SHM_group}
+rds_indiv_total <- rds_indiv %>%
+  mutate(specificity_group = "Total")
+
+rds_indiv <- rbind(rds_indiv, rds_indiv_total)
+
+
+rds_indiv_plot <- rds_indiv %>%
+  filter(specificity_group != "PostF") %>%
+  mutate(Group_specificity = paste(specificity_group, Timepoint, Group, sep = "_")) %>%
+  mutate(Group_specificity = factor(Group_specificity, levels = c("Total_B1_20-mer", "Total_B1_1-mer", "Total_B2_20-mer", "Total_B2_1-mer", "PreF_B1_20-mer", "PreF_B1_1-mer", "PreF_B2_20-mer", "PreF_B2_1-mer", "DP_B1_20-mer", "DP_B1_1-mer", "DP_B2_20-mer", "DP_B2_1-mer"))) %>% ungroup() 
+
+stat.test <- rds_indiv_plot %>%
+              wilcox_test(formula = V_errors ~ Group_specificity, 
+                          comparisons = my_comparisons, 
+                          p.adjust.method = "fdr", 
+                          paired = FALSE) %>%
+  add_xy_position()
+
+stat.test %>%
+  kable %>%
+  kable_styling("striped") %>% 
+ scroll_box(height = "200px")
+
+rds_indiv_plot %>%
+  ggpubr::ggviolin(x = "Group_specificity", y = "V_errors", fill = "Group_specificity", group = "Group_specificity", 
+                    legend = "none") +
+  geom_boxplot(outlier.shape = NA, width = 0.15, color = "black", alpha = 0.2)+
+  geom_vline(xintercept = c(4.5, 8.5), linetype = "dotted") +
+  scale_y_continuous(expand = c(0, 0), limits = c(0, 80)) +
+  scale_shape_manual(values=NA)+
+  scale_x_discrete(expand = c(0, 0)) +
+  scale_fill_manual(values = rep(c("#5F90B0", "#D896C1"), 6)) +
+  labs(y = "# IGHV nucleotide mutations",  x= "") +
+  stat_pvalue_manual(stat.test, label = "p.adj", y.position = 70) +
+  ggprism::theme_prism(base_fontface = "plain", border = T, base_line_size = .5, axis_text_angle = 45) +
+  theme(axis.ticks = element_line(size = .5),
+        legend.position = "none") 
+
+ggsave(paste0("../", result.dir, "rsv_specific_SHM_per_group.pdf"), width = 6, height = 3)
+```
+
+### Plot somatic hypermutation over time summarized by animal
+
+Here the SHM data is summarized per macaque, so each dot represents the average SHM of all the antigen-specific sequences for one animal.
+
+```{r shm_per_animal}
+rds_indiv_plot_summ <- rds_indiv_plot %>%
+  filter(Group_specificity != "PostF") %>%
+  group_by(ID, Group_specificity) %>%
+  summarise(avg_V_errors = mean(V_errors, na.rm = TRUE)) %>%
+  ungroup() %>%
+  tidyr::drop_na()
+
+stat.test <- rds_indiv_plot_summ %>%
+              wilcox_test(formula = avg_V_errors ~ Group_specificity, 
+                          comparisons = my_comparisons, 
+                          p.adjust.method = "fdr", 
+                          paired = FALSE) %>%
+  add_xy_position()
+
+stat.test %>%
+  kable %>%
+  kable_styling("striped") %>% 
+ scroll_box(height = "200px")
+
+rds_indiv_plot_summ %>%
+  ggpubr::ggdotplot(x = "Group_specificity", y = "avg_V_errors", fill = "Group_specificity", group = "Group_specificity", 
+                    legend = "none") +
+  geom_vline(xintercept = c(4.5, 8.5), linetype = "dotted") +
+  scale_y_continuous(expand = c(0, 0), limits = c(0, 25)) +
+  scale_shape_manual(values=NA)+
+  scale_x_discrete(expand = c(0, 0)) +
+  scale_fill_manual(values = rep(c("#5F90B0", "#D896C1"), 6)) +
+  stat_summary(fun.y = mean, 
+               geom = "crossbar") +
+  labs(y = "# IGHV nucleotide mutations",  x= "") +
+  stat_pvalue_manual(stat.test, label = "p.adj", y.position = 22) +
+  ggprism::theme_prism(base_fontface = "plain", border = T, base_line_size = .5, axis_text_angle = 45) +
+  theme(axis.ticks = element_line(size = .5),
+        legend.position = "none") 
+
+
+```
+
+# Take environment snapshot
+
+```{r env_snapshopt, eval = FALSE}
+renv::snapshot()
+```
+
+# SessionInfo
+
+```{r sessioninfo}
+sessionInfo()
+```

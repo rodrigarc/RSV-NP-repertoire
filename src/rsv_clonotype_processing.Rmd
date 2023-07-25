@@ -3,7 +3,6 @@ title: "Bioinformatics processing: Multivalent Antigen Display on Nanoparticles 
 author: "Rodrigo Arcoverde Cerveira"
 date: '`r format(Sys.Date(), "%Y-%m-%d")`'
 output: html_document
-abstract: Here you can find how the processing was performed for the paper entitled "Multivalent Antigen Display on Nanoparticles Elicits Diverse and Broad B cell Responses"
 knit: (function(inputFile, encoding) {
           rmarkdown::render(inputFile,
                             encoding = encoding, 
@@ -28,11 +27,12 @@ ifelse(isFALSE(dir.exists(paste0("../", result.dir))), dir.create(paste0("../", 
 options(stringsAsFactors = FALSE)
 ```
 
-## Abstract
+# Summary
 
+This Rmarkdown includes the code used to preprocess the output from IgDiscover. The code was split between processing and analysis since the processing requires larger amounts of RAM and CPU. In summary, the code takes raw clonotype data and specificity information, processes and manipulates the data, and then categorizes the clonotypes based on their specificities. The resulting processed data is saved for further analysis and exploration.
 
+# Needed libraries
 
-## Needed libraries
 ```{r libraries, message=FALSE}
 library(data.table)
 library(dplyr)
@@ -42,7 +42,10 @@ library(scales)
 library(ggprism)
 ```
 
-## Load data
+# Load data
+
+The code loads data from two files: "clonotypes_full.txt.gz" and "fsc_combined_processed_specificity.csv." The first file contains clonotype information after gene assignment and filtering, while the second file contains specificity information for antigen-specific single-cells obtained through FACS-sorting.
+
 ```{r message=FALSE, warning=FALSE}
 # clonotypes file processed after igdiscover gene assignment, combining outputs from all samples, and running clonotype module with traditional clonotype definition (aka same HV and HJ, same HCDR3 length, 80% aa similarities, and at least junction nucleotide the same)
 
@@ -50,7 +53,7 @@ clonotype_full <- fread("../data/processed_data/filtered_tsv/individualized/clon
 
 
 
-## specificity for all antigen-specific single-cells from FACS-sorting
+# specificity for all antigen-specific single-cells from FACS-sorting
 query_ref <- read.csv("../data/specificity/fsc_combined_processed_specificity.csv") %>%
   na.omit() %>%
   dplyr::rename(
@@ -60,7 +63,9 @@ query_ref <- read.csv("../data/specificity/fsc_combined_processed_specificity.cs
   mutate(specificity = gsub("\\d+", "", specificity_full))
 ```
 
-## Processing data
+# Processing data
+
+Next, the data is processed and wrangled. The "clonotype_full_fixed" data frame is created by manipulating the "clonotype_full" data frame. The script adds a "grp" variable to group the sequences based on empty rows (which separate different clones from the igdiscover output) and performs various data manipulations such as renaming columns and creating new columns based on specific patterns in the data. The script then generates a list of data frames, "filtered_animal", and "clonotype_summary", for each unique combination of "ID_timepoint". 
 
 ```{r data_wrangling}
 
@@ -98,7 +103,7 @@ filtered_animal <- list()
 clonotype_summary <- list()
 
 for (animals in unique(clonotype_full_fixed$ID_timepoint)) {
-  ## save full clonotype files
+  # save full clonotype files
   filtered_animal[[animals]] <- clonotype_full_fixed %>%
     filter(ID_timepoint == animals) %>%
     as.data.frame()
@@ -134,6 +139,8 @@ rm(filtered_animal)
 gc()
 ```
 
+Following that, the code processes and categorizes the clonotypes into specificity groups. The "clonotype_rsv" data frame is created by taking relevant columns from "clonotype_full_fixed" and categorizing each clonotype into specificities (DP, PreF, or PostF) based on the information in the "query_ref" data frame.
+
 ```{r antigen-specific_clones}
 
 clonotype_rsv <- clonotype_full_fixed %>%
@@ -165,7 +172,9 @@ clonotype_rsv <- left_join(clonotype_rsv, query_ref, by = "name") %>%
 
 ```
 
-## Save intermediate files with only antigen-specific clones and processed columns
+# Save intermediate files with only antigen-specific clones and processed columns
+
+Finally, the script saves two intermediate data frames, "clonotype_full_fixed" and "clonotype_rsv," as RDS files for future use.
 
 ```{r saving_data_rds}
 
@@ -175,13 +184,14 @@ saveRDS(clonotype_rsv, paste0("../data/clonotypes/individualized/rsv-specific_cl
 
 ```
 
-## Take environment snapshot 
+# Take environment snapshot
+
 ```{r}
 renv::snapshot()
 ```
 
+# SessionInfo
 
-## SessionInfo
 ```{r}
 sessionInfo()
 ```

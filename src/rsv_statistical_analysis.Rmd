@@ -1,6 +1,6 @@
 ---
 title: "Statistical analysis: Multivalent Antigen Display on Nanoparticles Elicits Diverse and Broad B cell Responses"
-author: "Rodrigo Arcoverde Cerveira"
+author: "Rodrigo Arcoverde Cerveira and Sebastian Ols"
 date: '`r format(Sys.Date(), "%Y-%m-%d")`'
 output: 
  html_document:
@@ -10,12 +10,11 @@ output:
     number_sections: true
  github_document:
     preview_html: false
-abstract: Here you can find the statistical analysis and plots generated in R for the paper entitled "Multivalent Antigen Display on Nanoparticles Elicits Diverse and Broad B cell Responses"
 knit: (function(inputFile, encoding) {
           rmarkdown::render(inputFile,
                             encoding = encoding, 
                             output_file = paste0(
-                              xfun::sans_ext(inputFile), '_', '.html'))})
+                              xfun::sans_ext(inputFile), '.html'))})
 ---
 
 ```{r setup, include=FALSE}
@@ -39,49 +38,56 @@ ifelse(isFALSE(dir.exists(paste0("../", result.dir))), dir.create(paste0("../", 
 options(stringsAsFactors = FALSE)
 ```
 
-# Abstract
+# Summary
 
-This `Rmarkdown` provides the analysis for the processed data in the paper entitled "Multivalent Antigen Display on Nanoparticles Diversifies B Cell Responses". It includes mainly the statistical analysis and plots included in this project.
+This `Rmarkdown` file provides a breakdown of a selection of the statistical analyses from the manuscript entitled “Multivalent Antigen Display on Nanoparticles Diversifies B Cell Responses”. It includes mainly the statistical tests run on analyses of plasma antibody specificities and memory B cell clonality.
 
-# Needed libraries
+# Loaded libraries
 
-Loaded libraries need to be present.
+The main libraries used for statistical analysis are shown here.
 
-```{r libraries, message=FALSE, results='hide'}
+```{r librares_2, message=FALSE, results='hide', echo=FALSE}
 library(jsonlite)
-library(tidyr)
+library(Biostrings)
 library(treeio)
 library(ggtree)
-library(rstatix)
-library(ggpubr)
-library(Biostrings)
+source("df_to_fasta.R")
 library(data.table)
 library(vegan)
+```
+
+```{r libraries, message=FALSE, results='hide'}
+library(tidyr)
+library(rstatix)
+library(ggpubr)
 library(ggplot2)
 library(scales)
 library(ggprism)
 library(dplyr)
 library(forcats)
 library(kableExtra)
-source("df_to_fasta.R")
 set.seed(123)
 ```
 
-# Load data
+# Loaded data
 
-Some data used here is stored as `.rds` format, but it can also be found as `.tsv` at Zenodo (DOI: 000000000).
+The values used for statistical analyses and plotting are loaded here from .csv files or .rds files. The values have been calculated or obtained from other programs or scripts. A description of tThe data sources can be found in each section and the raw data can be found in the accompanying repository.
 
 ```{r load_rds, results='hide'}
-data_comp <- read.csv("../data/ELISA_comp/2023-03-06_normalized_plasma_compt.csv") %>%
-  mutate(group = case_when(group == "NP 100%" ~ "20-mer",
+data_comp <- read.csv("../data/ELISA_comp/2023-03-06_normalized_plasma_compt.csv")
+clonotype_rsv <- readRDS("../data/clonotypes/individualized/rsv-specific_clonotypes.rds")
+
+# set color for fill and color aes layers
+fill_col_values <- c("20-mer" = "#5F90B0", "10-mer" = "#92CDD5", "1-mer" = "#D896C1", "PostF" = "grey50")
+color_values <- c("20-mer" = "#2E6997", "10-mer" = "#469698", "1-mer" = "#BE3C8C", "PostF" = "grey20")
+```
+
+```{r hidden_processing, results='hide', echo=FALSE, message=FALSE}
+data_comp <- data_comp %>% mutate(group = case_when(group == "NP 100%" ~ "20-mer",
                            group == "NP 50%" ~ "10-mer",
                            group == "Sol" ~ "1-mer",
                            group == "PostF" ~ "PostF"))
 
-clonotype_rsv <- readRDS("../data/clonotypes/individualized/rsv-specific_clonotypes.rds")
-
-
-# replace column names for AIRR-compliant names and filter out "PV" timepoint which was not used for the analysis
 clonotype_rsv <- clonotype_rsv %>%
   filter(timepoint != "PV") %>%
   mutate(cdr3_aa_length = nchar(CDR3_aa),
@@ -90,10 +96,6 @@ clonotype_rsv <- clonotype_rsv %>%
          j_call = J_gene,
          d_call = D_gene) 
 
-# set color for fill and color aes layers
-fill_col_values <- c("20-mer" = "#5F90B0", "10-mer" = "#92CDD5", "1-mer" = "#D896C1", "PostF" = "grey50")
-color_values <- c("20-mer" = "#2E6997", "10-mer" = "#469698", "1-mer" = "#BE3C8C", "PostF" = "grey20")
- 
 # load repertoire sequencing reads info
 rep_seq_ls <- list.files("../data/processed_data/rep_seq", pattern = "stats.json", recursive = TRUE, full.names = TRUE)
 rep_seq_names <- list.files("../data/processed_data/rep_seq", pattern = "stats.json", recursive = TRUE, full.names = FALSE)
@@ -114,86 +116,16 @@ data_comp_auc <- read.csv("../data/ELISA_comp/2023-04-28_LOR_norm-dAUC.csv", hea
 clono_light_chains <- read.table("../data/clonotypes/light_chain_assigned_clonotypes.tsv", sep = "\t", header = TRUE) 
 ```
 
-# Plasma profiling
+# Plasma antibody specificity profiling
 
-The non-human primates plasma samples from this study were used for antibody competition ELISAs coated with pre-fusion or post-fusion proteins against previously characterized monoclonal antibodies. Here we show this data using different visualization methods.
+The polyclonal antibody specificities in the plasma of immunized animals were assessed using a competition ELISA with reference monoclonal antibodies (mAbs). This analysis was performed for antigenic sites on both the preF and postF conformations of RSV-F. To assess specificity skewing from repeated immunizations, analysis was performed at boost 1 (4 weeks post second immunization) and boost 2 (2 weeks post third immunization). Statistical analyses performed here correct for the multiple comparisons made across groups, time points, and antigenic sites.
 
-## Multidimensional scaling (MDS)
+## Competition for epitopes on preF (Fig. 3K)
 
-Multidimensional scaling aims to conserve distances between datapoints and/or samples from a set of variables. Thus, closer a point is to each other, closer their competition profile in this case. It is a good way to summarize in a 2D-space a large number of variables. The MDS input is a dissimilarity matrix, for this plot the input the matrix is based on cosine distance. Although the euclidean distance is the most used, we have decided to use the cosine distance here because the magnitude of responses are less important than the competition profile itself for us. Some NHPs were really good responders, thus having higher titers for all the competitions, thus euclidean distance would drive them far away from all the other NHPs because of their high antibody titer. Since cosine distance takes into account the distance as an angle rather than the value itself, it does not take into account the weight or the magnitude of the antibody titers.
-
-```{r mds_processing, echo=FALSE, results='hide'}
-cosine_distance <- function(x) {
-#For cosine similarity matrix
-Matrix <- x %>% 
-  select(-c(timepoints, ID, group)) %>%
-  as.matrix()
-sim <- Matrix / sqrt(rowSums(Matrix * Matrix))
-sim <- sim %*% t(sim)
-#Convert to cosine dissimilarity matrix (distance matrix).
-D_sim <- as.dist(1 - sim)
-
-mds <- D_sim %>%       
-  cmdscale(3) %>%
-  as_tibble()
-colnames(mds) <- c("Dim.1", "Dim.2", "Dim.3")
-
-mds <- mds %>%
-  mutate(group = x$group,
-         timepoints = x$timepoints,
-         ID = x$ID)
-return(mds)
-}
-```
-
-## Plasma profiling with MDS divided by timepoint
-
-The code below plots 4 different MDS plots. They are divided between 2 weeks after Boost 1 (B1) and Boost 2 (B2), with or without animals vaccinated with PostF immunogen. On the top of each plot, it is written B1 or B2, and legends say if PostF animals are included or not. The cosine distance was calculated separately using the custom `cosine_distance()` provided above, for that reason, position of points should not be compared directly between each plot but rather with points within each plot.
-
-```{r mds_per_timepoint}
-# calculate cosine distance and generate MDS with and without PostF
-mds_b1 <- data_comp %>% filter(timepoints == "B1") %>% cosine_distance()
-mds_b2 <- data_comp %>% filter(timepoints == "B2") %>% cosine_distance()
-mds_no_postf_b1 <- data_comp %>% filter(group != "PostF", timepoints == "B1") %>% cosine_distance()
-mds_no_postf_b2 <- data_comp %>% filter(group != "PostF", timepoints == "B2") %>% cosine_distance()
-ls_mds <- list(mds_b1, mds_b2, mds_no_postf_b1, mds_no_postf_b2)
-
-plot_list <- list()
-for(f in seq_along(ls_mds)){
-# Plot and color by groups
-    mds_plot <- ls_mds[[f]]
-    if(f == 2){
-      mds_plot$Dim.1 <- mds_plot$Dim.1 * -1 # flip axis in first dimension
-    }
-    
-    plot <- mds_plot %>%
-      ggplot(aes(Dim.1, Dim.2, color = group, fill = group)) + 
-      geom_point(size = 4, shape = 21) +
-      scale_fill_manual(values = fill_col_values) +
-      scale_color_manual(values = color_values) +
-      lims(x = c(-.5,.5), y = c(-.4, .4)) + 
-      ggprism::theme_prism(base_fontface = "plain", border = TRUE, base_line_size = 1) +
-      theme(axis.ticks = element_line(size = .5),
-            legend.position = c(.1,.2),
-            legend.background = element_blank(),
-            legend.box.background = element_rect(colour = "black")) +
-      facet_wrap(~timepoints)
-    
-  plot_list[[f]] <- plot
-    ggsave(plot = plot, filename = paste0("../", result.dir, f,"_mds_cosine-distance.pdf"), device = "pdf", width = 4, height = 4)
-}
-
-ggarrange(plot_list[[3]], plot_list[[4]], plot_list[[1]], plot_list[[2]], ncol = 2, nrow = 2, common.legend = TRUE,legend = "top", legend.grob = get_legend(plot_list[[2]] + theme(legend.position = "top")) )
-
-
-```
-
-## Competition titers as bar plots
-
-### Competition for epitopes on Pref
+Competition with five (5) reference mAbs targeting distinct epitopes on preF were analyzed. Each of the three groups was compared against each other at each of two time points using a two-tailed Wilcoxon rank sum test (a.k.a. Mann-Whitney U test). This means a total of six (6) comparisons were made for each of the reference mAbs. Statistical analysis was not performed for one mAb at the boost 1 time point as most data points were below the limit of detection. Thus, a total of 24 comparisons were made.To correct for these multiple comparisons, the false discovery rate correction by Benjamini & Hochberg (1995) was applied (alpha = 0.05). Also, the p-values and adjusted p-values for each comparison are listed in the table that follows.
 
 ```{r competition_bars_pref}
-
+# Imported ELISA competition data is identified by reference mAb and corresponding antigenic site on preF or postF. Time point of analysis is also identified
 data_comp_longer <- data_comp %>%
   pivot_longer(cols = 2:9, names_to = "mAb", values_to = "ELISA_competition") %>%
   mutate(epitopes = plyr::mapvalues(mAb, 
@@ -207,39 +139,30 @@ data_comp_longer <- data_comp %>%
         timepoint_group = paste(timepoints, group, sep = "_"),
         timepoint_group_epitope = paste(timepoints, group, epitopes, sep = "_")) 
 
+# In Figure 3, the postF group has not been analyzed and hence its values are filtered out from the analysis performed here
 data_comp_longer_noPostF <- data_comp_longer %>%
   filter(group != "PostF")
 
+# Each group is compared against each other within each time point (B1 or B2)
 my_comparisons_sites <- list(c("B1_1-mer", "B1_20-mer"),
                        c("B1_1-mer", "B1_10-mer"),
-                       #c("B1_1-mer", "B1_PostF"),
                        c("B1_10-mer", "B1_20-mer"),
-                       #c("B1_10-mer", "B1_PostF"),
-                       #c("B1_20-mer", "B1_PostF"),
                        c("B2_1-mer", "B2_20-mer"),
                        c("B2_1-mer", "B2_10-mer"),
-                       #c("B2_1-mer", "B2_PostF"),
-                       #c("B2_10-mer", "B2_PostF"),
-                       #c("B2_20-mer", "B2_PostF"),
                        c("B2_10-mer", "B2_20-mer")
                        )
-
+# The comparison of groups by time point is done for each antigenic site analyzed
 my_comparisons_1 <- lapply(my_comparisons_sites, paste0, "_I")
 my_comparisons_2 <- lapply(my_comparisons_sites, paste0, "_II")
 my_comparisons_3 <- lapply(my_comparisons_sites, paste0, "_III")
 my_comparisons_4 <- lapply(my_comparisons_sites, paste0, "_IV")
 my_comparisons_5 <- lapply(my_comparisons_sites, paste0, "_Ø")
 
-# Selecting sites for statistical comparison only between groups for each timepoint
-# removed statistical comparisons for Boost 1 site I in PreF since most values were below the threshold of detection
+# The comparisons are compiled into a list for preF
+# The statistical comparisons for antigenic site I in preF at Boost 1 is filtered out from analysis as most values were below the limit of detection
 my_comparisons_preF <- c(my_comparisons_1[4:6], my_comparisons_2, my_comparisons_3, my_comparisons_4, my_comparisons_5)
-
-# code removed to not include postF
-#my_comparisons_preF <- c(my_comparisons_1[7:12], my_comparisons_2, my_comparisons_3, my_comparisons_4, my_comparisons_5)
-
-my_comparisons_postF <- c(my_comparisons_1, my_comparisons_2, my_comparisons_4)
   
-
+# The two-tailed Wilcoxon rank sum test with an FDR correction is run for the 24 comparisons specified earlier
 stat.test <- data_comp_longer_noPostF %>%
   filter(conformation == "PreF") %>%
   wilcox_test(formula = ELISA_competition ~ timepoint_group_epitope, 
@@ -247,11 +170,14 @@ stat.test <- data_comp_longer_noPostF %>%
               p.adjust.method = "fdr", 
               comparisons = my_comparisons_preF)
 
+# The statistical analyses are printed as a table (shown below)
 stat.test %>%
+  select(-c(.y.)) %>%
   kable %>%
   kable_styling("striped") %>% 
  scroll_box(height = "200px")
 
+# The data is plotted as a dot plot with corresponding adjusted p-values reaching significance (adj. p < 0.05)
 data_comp_longer_noPostF %>%
   filter(conformation == "PreF") %>%
   ggplot(aes(x = timepoint_group,
@@ -275,23 +201,30 @@ data_comp_longer_noPostF %>%
 
 ```
 
-### Competition for epitopes on Pref
+## Competition for epitopes on postF (Fig. 3L)
+
+Competition with three (3) reference mAbs targeting distinct epitopes on postF were analyzed. Each of the three groups was compared against each other at each of two time points using a two-tailed Wilcoxon rank sum test (a.k.a. Mann-Whitney U test or a non-parametric t-test). This means a total of six (6) comparisons were made for each of the reference mAbs. Thus, a total of 18 comparisons were made. To correct for these multiple comparisons, the false discovery rate correction by Benjamini & Hochberg (1995) was applied (alpha = 0.05). Also, the p-values and adjusted p-values for each comparison are listed in the table that follows.
 
 ```{r competition_bars_postf}
+# The comparison of groups by time point is done for each antigenic site on postF (i.e., sites I, II, IV)
+my_comparisons_postF <- c(my_comparisons_1, my_comparisons_2, my_comparisons_4)
 
+# The two-tailed Wilcoxon rank sum test with an FDR correction is run for the 18 comparisons specified earlier
 stat.test <- data_comp_longer_noPostF %>%
   filter(conformation == "PostF") %>%
   wilcox_test(formula = ELISA_competition ~ timepoint_group_epitope, 
               paired = FALSE, 
               p.adjust.method = "fdr", 
-              comparisons = my_comparisons_postF) %>%
-  add_xy_position()
+              comparisons = my_comparisons_postF)
 
+# The statistical analyses are printed as a table (shown below)
 stat.test %>%
+  select(-c(.y.)) %>%
   kable %>%
   kable_styling("striped") %>% 
  scroll_box(height = "200px")
 
+# The data is plotted as a dot plot with corresponding adjusted p-values reaching significance (adj. p < 0.05)
 data_comp_longer_noPostF %>%
   filter(conformation == "PostF") %>%
   ggplot(aes(x = timepoint_group,
@@ -354,53 +287,6 @@ rds_merge <- rds_merge %>%
 
 ```
 
-## Plot number of sequences per animal
-
-Plotting sequencing depth for each timepoint per animal. This indicates that the sequencing depth for Boost 1 was lower, thus for that reason all the analysis were normalized by sequencing depth to take that into account. 
-
-```{r sequencing_depth}
-# samples from BR2-B2 from E17 were merged with TR1-B2
-# this was done due to low sequencing depth for that animal and large expansion of uncharacterized clones 
-full_rep_indiv <- read.table("../data/processed_data/summary_sequencing_table.tsv", 
-                             header = TRUE) %>%
-  separate(ID, sep = "_", into = c("sample", "ID")) %>%
-  filter(sample != "TR2-B2") %>%
-  mutate(sample = ifelse(sample == "BR2-B2", "TR1-B2", sample),
-         timepoint = case_when(sample == "igm" ~ "PV",
-                            grepl("B1", sample) ~ "B1",
-                            grepl("B2", sample) ~ "B2"),
-         timepoint = factor(timepoint, levels = c("PV", "B1", "B2"))) %>%
-  group_by(timepoint, ID) %>%
-  summarise(across(where(is.numeric), sum)) %>%
-  ungroup()
-  
-# since here we wanted to compare all groups, we used Dunn's test
-stat.test <- full_rep_indiv %>%
-              dunn_test(formula = assignment_filtering.has_cdr3 ~ timepoint,
-                          p.adjust.method = "fdr") %>%
-  add_xy_position()
-
-stat.test %>%
-  kable %>%
-  kable_styling("striped") %>% 
- scroll_box(height = "200px")
-
-full_rep_indiv %>%
-  ggdotplot(y = "assignment_filtering.has_cdr3", x = "timepoint", 
-            group = "timepoint", 
-            fill = "ID", 
-            size = 1,) +
-  geom_boxplot(alpha = .2, outlier.shape = NA) +
-  ggpubr::stat_compare_means(method = "kruskal") +
-  labs(x = "Timepoint", y = "# good quality aligned sequences") +
-  scale_fill_viridis_d() +
-  stat_pvalue_manual(stat.test %>% mutate(p.adj = round(p.adj, 4)), label = "p.adj") +
-   ggprism::theme_prism(base_fontface = "plain", border = T, base_line_size = 1, axis_text_angle = 45, base_rect_size = 1.5)
-
-ggsave(paste0("../", result.dir, "repertoire_depth.pdf"), width = 5, height = 3)
-
-```
-
 
 ```{r plot_clonotypes, echo = FALSE, results='hide'}
 
@@ -435,7 +321,7 @@ rds_summary_save <- rds_summary %>%
             geom_clonal_size = exp(mean(log(clonal_size))),
             unique_clones = sum(clonal_size == 1),
             total_clones_detected = n(),
-            percentage_unique_clones = round(unique_clones/total_clones_detected*100,digits = 2)) 
+            percentage_unique_clones = round(unique_clones/total_clones_detected*100, digits = 2)) 
 
 rds_summary_save %>%
   kable %>%
@@ -446,7 +332,6 @@ write.csv(rds_summary_save,
           paste0("../", result.dir, "clone_size_mean_median.csv"),row.names = FALSE)
 
 ```
-
 
 
 ```{r indv_lors_plot, echo=FALSE, results='hide'}
@@ -477,19 +362,16 @@ rds_indiv <- rds_indiv %>%
 
 ```
 
-## Count unique V-J pairs
+# Memory B cell profiling 
 
-```{r count_unique}
-# groups to perform statistical comparisons
-my_comparisons <- list(c("Total_B1_20-mer", "Total_B1_1-mer"),
-                       c("Total_B2_20-mer", "Total_B2_1-mer"),
-                       c("PreF_B1_20-mer", "PreF_B1_1-mer"),
-                       c("PreF_B2_20-mer", "PreF_B2_1-mer"),
-                       c("DP_B1_20-mer", "DP_B1_1-mer"),
-                       c("DP_B2_20-mer", "DP_B2_1-mer"))
+To assess if epitope-focusing of circulating memory B cells in 20-mer animals relative to 1-mer animals was the result of an oligoclonal or polyclonal expansion we studied the clonotype diversity with different metrics. We combined single-cell BCR sequences of known specificity (~400 B cells per animal) with longitudinal bulk IgG repertoire sequencing datasets. This yielded a total of ~190,000 RSV-F-specific BCR sequences at boost 1 and boost 2 time points with a clonal relationship. Different metrics of diversity were calculated from these clonotypes and assigned a specificity based on the antigen-specific sorting. Statistical analyses performed here correct for the multiple comparisons made across groups, time points, and specificities.
 
+## Count unique IGHV-IGHJ pairs (Fig. 5J)
+
+The diversity of responding B cells was here assessed by gene usage and counting of unique IGHV-IGHJ pairs. The two groups were compared against each other at each of two time points for three different specificities: Total F, preF, or preF/postF (DP). For this, a two-tailed Wilcoxon rank sum test (a.k.a. Mann-Whitney U test) was employed. This means a total of six (6) comparisons were made. To correct for these multiple comparisons, the false discovery rate correction by Benjamini & Hochberg (1995) was applied (alpha = 0.05). Also, the p-values and adjusted p-values for each comparison are listed in the table that follows. 
+
+```{r count_uniq_processing, results='hide', echo=FALSE, message=FALSE}
 rds_summary_noPV <- rds_summary %>%
-  # If want to remove clonal sizer < 1, do it here.
   filter(database == "Individualized", Timepoint != "Single-cell", Timepoint != "PV") %>%
   rbind(., within(., specificity_group <- "Total")) %>%
   filter(specificity_group != "PostF") %>%
@@ -502,7 +384,18 @@ rds_summary_noPV <- rds_summary %>%
   ungroup()
 
 rds_summary_noPV %>% write.csv(paste0("../", result.dir,"unique_HV_HJ_pairing-data.csv"), row.names = F)
+```
 
+```{r vj_count_and_statistic}
+# The two vaccine groups are compared by specificity at each sequenced timepoint
+my_comparisons <- list(c("Total_B1_20-mer", "Total_B1_1-mer"),
+                       c("Total_B2_20-mer", "Total_B2_1-mer"),
+                       c("PreF_B1_20-mer", "PreF_B1_1-mer"),
+                       c("PreF_B2_20-mer", "PreF_B2_1-mer"),
+                       c("DP_B1_20-mer", "DP_B1_1-mer"),
+                       c("DP_B2_20-mer", "DP_B2_1-mer"))
+
+# The two-tailed Wilcoxon rank sum test with an FDR correction is run for the 6 comparisons specified earlier 
 stat.test <- rds_summary_noPV %>%
               wilcox_test(formula = unique_v_j ~ Group_specificity, 
                           comparisons = my_comparisons, 
@@ -510,11 +403,14 @@ stat.test <- rds_summary_noPV %>%
                           paired = FALSE) %>%
   add_xy_position()
 
+# The statistical analyses are printed as a table (shown below) 
 stat.test %>%
+  select(-c(.y., y.position,	groups,	xmin,	xmax)) %>%
   kable %>%
   kable_styling("striped") %>% 
  scroll_box(height = "200px")
 
+# The data is plotted as a dot plot with corresponding adjusted p-values  
 rds_summary_noPV %>%
   ggpubr::ggdotplot(x = "Group_specificity", y = "unique_v_j", 
                     fill = "Group", 
@@ -534,26 +430,11 @@ rds_summary_noPV %>%
   theme(axis.ticks = element_line(size = .5),
         legend.position = "none")
 
-ggsave(paste0("../", result.dir, "v-j-pair_count.pdf"), width = 5, height = 3)
 ```
 
-```{r ven_diagram, echo = FALSE, results='hide'}
+## Clonotype richness Chao1 (Fig. 5K)
 
-rds_summary_noPV <- rds_summary %>%
-  # decide if clonal size greater than 1 should be included
-  filter(database == "Individualized", Timepoint != "Single-cell") %>%
-  rbind(., within(., specificity_group <- "Total")) %>%
-  filter(specificity_group != "PostF") %>%
-  mutate(Group_specificity = paste(specificity_group, Timepoint, Group, sep = "_"),
-         Group_specificity = factor(Group_specificity, levels = c("Total_B1_20-mer", "Total_B1_1-mer", "Total_B2_20-mer", "Total_B2_1-mer", "PreF_B1_20-mer", "PreF_B1_1-mer", "PreF_B2_20-mer", "PreF_B2_1-mer", "DP_B1_20-mer", "DP_B1_1-mer", "DP_B2_20-mer", "DP_B2_1-mer"))) %>%
-  group_by(Group) %>%
-  mutate(v_j_calls = paste(v_call,j_call, sep = "_")) %>%
-  distinct(v_j_calls) 
-```
-
-# Generate processed files for diversity index estimation
-
-Intermediate files are commented out, so it will not save all of them. One could uncomment them if all the intermediate files are needed. Intermediate files were used to run `Recon (v2.5)` (Kaplinsky & Arnaout, *Nat Commmun*, 2016) according to default parameters, more about running Recon is described in the next section [Recon estimates for RSV-specific diversity].
+The species richness (Chao1) used in this section was calculated using the vegan R package. The samples were first subsampled 100 times for each animal at each timepoint and specificity and then the species richness was estimated. The means of the 100x replicates were used for plotting. As before, the two groups were compared against each other at each of two time points for three different specificities: Total F, preF, or preF/postF (DP). For this, a two-tailed Wilcoxon rank sum test (a.k.a. Mann-Whitney U test) was employed. This means a total of six (6) comparisons were made. To correct for these multiple comparisons, the false discovery rate correction by Benjamini & Hochberg (1995) was applied (alpha = 0.05). Also, the p-values and adjusted p-values for each comparison are listed in the table that follows.
 
 ```{r rsv_per_timepoint_specificity, echo = FALSE, results='hide'}
 # add column for loop of ID, timepoint and specificity
@@ -630,12 +511,6 @@ for (i in unique(to_recon_rsv$ID_timepoint_spec)) {
 }
 ```
 
-## Calculating Species richness
-
-### Chao1 estimates for RSV-specific diversity
-
-Species richness (Chao1) was calculated using the `vegan` r package. The samples were first subsampled 100 times for each animal/timepoint and then the species richness was estimated. The mean of those 100x replicates were used for plotting.
-
 
 ```{r generate_chao1_estimates_rsv, echo = FALSE, results='hide'}
 
@@ -701,11 +576,7 @@ change_names <- function(x) {
 }
 ```
 
-### Chao1 plotting between groups for RSV-specific diversity
-
-Here is the plotting and comparison between vaccinated group:
-
-```{r plot_chao1}
+```{r plot_chao1_2, echo=FALSE, message=FALSE}
 chao_results_df$Specificity[chao_results_df$Specificity == "total"] <- "Total"
 
 chao_results_df <- chao_results_df %>%
@@ -730,6 +601,9 @@ chao_results_df <- chao_results_df %>%
 
 write.csv(chao_results_df, paste0("../", result.dir, "chao1_results_plot_values.csv"), row.names = FALSE)
 
+```
+
+```{r plot_chao1}
 
 stat.test <- chao_results_df %>%
               wilcox_test(formula = value ~ Group_specificity, 
@@ -739,6 +613,7 @@ stat.test <- chao_results_df %>%
   add_xy_position()
 
 stat.test %>%
+  select(-c(.y., y.position,	groups,	xmin,	xmax)) %>%
   kable %>%
   kable_styling("striped") %>% 
  scroll_box(height = "200px")
@@ -762,14 +637,14 @@ chao_results_df %>%
   theme(axis.ticks = element_line(size = .5),
         legend.position = "none")
 
-
-ggsave(paste0("../", result.dir, "chao1_species_richness.pdf"), width = 5, height = 3)
 ```
 
-### Recon estimates for RSV-specific diversity
+## Clonotype richness – Recon (Fig. 5L)
+
+The species richness (Recon) used in this section was calculated using Recon (v2.5) (Kaplinsky & Arnaout, Nat Commmun, 2016) according to default parameters. As before, the two groups were compared against each other at each of two time points for three different specificities: Total F, preF, or preF/postF (DP). For this, a two-tailed Wilcoxon rank sum test (a.k.a. Mann-Whitney U test) was employed. This means a total of six (6) comparisons were made. To correct for these multiple comparisons, the false discovery rate correction by Benjamini & Hochberg (1995) was applied (alpha = 0.05). Also, the p-values and adjusted p-values for each comparison are listed in the table that follows.
 
 ```{r recon_diversity_stats}
-
+## The output from Recon was used to perform the statistics, here the data is just processed to have the correct rows and nomenclatures.
 recon_res <- read.table("../data/diversity_index/recon/rsv_output_diversity_table.txt", header = TRUE) %>%
   filter(Timepoint != "PV", Timepoint != "Single-cell", Specificity != "PostF") %>%
   mutate(Group = plyr::mapvalues(
@@ -788,7 +663,7 @@ recon_res <- read.table("../data/diversity_index/recon/rsv_output_diversity_tabl
 
 write.csv(recon_res, paste0("../", result.dir, "recon_results_plot_values.csv"), row.names = FALSE)
   
-
+# The two-tailed Wilcoxon rank sum test with an FDR correction is run for the 6 comparisons specified earlier
 stat.test <- recon_res %>%
               wilcox_test(formula = est_0.0D ~ Group_specificity, 
                           comparisons = my_comparisons, 
@@ -796,11 +671,14 @@ stat.test <- recon_res %>%
                           paired = FALSE) %>%
   add_xy_position()
 
+# The statistical analyses are printed as a table (shown below)
 stat.test %>%
+  select(-c(.y., y.position,	groups,	xmin,	xmax)) %>%
   kable %>%
   kable_styling("striped") %>% 
  scroll_box(height = "200px")
 
+# The data is plotted as a dot plot with corresponding adjusted p-values
 recon_res %>%
   ggpubr::ggdotplot(x = "Group_specificity", y = "est_0.0D", 
                     fill = "Group", 
@@ -820,40 +698,70 @@ recon_res %>%
   theme(axis.ticks = element_line(size = .5),
         legend.position = "none")
 
-ggsave(paste0("../", result.dir, "recon_species_richness.pdf"), width = 5, height = 3)
 ```
 
 
-## Somatic hypermutation comparisons
+## Somatic hypermutation (SHM) comparisons
 
-### Somatic hypermutation over time for individualized database
+### SHM of all sequences (Fig. S4K)
 
-Here the SHM is shown for all the sequences for every animal combined. Data is divided by 20-mer, 1-mer, and specificities. T
+Here, the SHM for all antigen-specific sequences is combined by group. The two groups were compared against each other at each of two time points for three different specificities: Total F, preF, or preF/postF (DP). For this comparison, a normal distribution can be assumed due to the large number of sequences. Thus, a two-tailed Student’s t-test was employed. This means a total of six (6) comparisons were made. To correct for these multiple comparisons, the false discovery rate correction by Benjamini & Hochberg (1995) was applied (alpha = 0.05). Also, the p-values and adjusted p-values for each comparison are listed in the table that follows. Due to the very large sample size, small differences can lead to extremely small p-values. Therefore, we have also calculated the Cohen’s d (1988) to estimate the effect size between the two group means. The magnitude of the effect size was small for most comparisons, suggesting that these highly statistically significant but small differences may not have biological significance.
 
 ```{r SHM_group}
-rds_indiv_total <- rds_indiv %>%
-  mutate(specificity_group = "Total")
+rds_indiv_total <- rds_merge %>%
+  mutate(specificity_group = "Total") 
 
-rds_indiv <- rbind(rds_indiv, rds_indiv_total)
+rds_indiv_plot <- rbind(rds_merge, rds_indiv_total)
 
-
-rds_indiv_plot <- rds_indiv %>%
+rds_indiv_plot <- rds_indiv_plot %>%
   filter(specificity_group != "PostF") %>%
   mutate(Group_specificity = paste(specificity_group, Timepoint, Group, sep = "_")) %>%
-  mutate(Group_specificity = factor(Group_specificity, levels = c("Total_B1_20-mer", "Total_B1_1-mer", "Total_B2_20-mer", "Total_B2_1-mer", "PreF_B1_20-mer", "PreF_B1_1-mer", "PreF_B2_20-mer", "PreF_B2_1-mer", "DP_B1_20-mer", "DP_B1_1-mer", "DP_B2_20-mer", "DP_B2_1-mer"))) %>% ungroup() 
+  mutate(Group_specificity = factor(Group_specificity, levels = c("Total_B1_20-mer", "Total_B1_1-mer", "Total_B2_20-mer", "Total_B2_1-mer", "PreF_B1_20-mer", "PreF_B1_1-mer", "PreF_B2_20-mer", "PreF_B2_1-mer", "DP_B1_20-mer", "DP_B1_1-mer", "DP_B2_20-mer", "DP_B2_1-mer"))) %>% ungroup() %>% drop_na(Group_specificity)
 
+# Save the dataset from above used for statistics
+write.csv(rds_indiv_plot %>% select(ID, Timepoint, Group_specificity, V_errors), 
+          paste0("../", result.dir, "antigen_specific_total_shm.csv"),row.names = FALSE)
+
+
+# The two-tailed Student's t-test with an FDR correction is run for the 6 comparisons specified earlier
 stat.test <- rds_indiv_plot %>%
-              wilcox_test(formula = V_errors ~ Group_specificity, 
+              t_test(formula = V_errors ~ Group_specificity, 
                           comparisons = my_comparisons, 
                           p.adjust.method = "fdr", 
                           paired = FALSE) %>%
-  add_xy_position()
+  add_xy_position() %>%
+  mutate(p.adj = ifelse(p.adj<= 0.00001, "0.0000",p.adj))
 
-stat.test %>%
+# The effect size was calculated using Cohen's method
+stat.effectsize <- rds_indiv_plot %>%
+              cohens_d(formula = V_errors ~ Group_specificity, 
+                          comparisons = my_comparisons,
+                          paired = FALSE)
+# Staltistical results are merged in a single object
+stats <- left_join(stat.test, stat.effectsize, by = c("group1","group2", ".y.", "n1", "n2")) %>%
+  mutate(effsize = paste0("d=",round(effsize, 2)))
+
+# The statistical analyses, including effect size, are printed as a table (shown below)
+stats %>%
+  select(-c(.y., y.position,	groups,	xmin,	xmax)) %>%
   kable %>%
   kable_styling("striped") %>% 
  scroll_box(height = "200px")
 
+# The SHM mean, standard deviation, n size, and the confidence interval per group was calculated and saved to summarise the dataset used and provided within this repository
+counts <- rds_indiv_plot %>% group_by(Group, specificity_group) %>%
+  rename(shm = V_errors) %>%
+  summarise(mean.shm = mean(shm, na.rm = TRUE),
+            sd.shm = sd(shm, na.rm = TRUE),
+            n.shm = n()) %>%
+  mutate(se.shm = sd.shm / sqrt(n.shm),
+         lower.ci.shm = mean.shm - qt(1 - (0.05 / 2), n.shm - 1) * se.shm,
+         upper.ci.shm = mean.shm + qt(1 - (0.05 / 2), n.shm - 1) * se.shm)
+
+write.csv(counts, 
+          paste0("../", result.dir, "antigen_specific_total_shm_stats.csv"),row.names = FALSE)
+
+# The data is plotted as a dot plot with corresponding adjusted p-values and Cohen's d effect size
 rds_indiv_plot %>%
   ggpubr::ggviolin(x = "Group_specificity", y = "V_errors", fill = "Group_specificity", group = "Group_specificity", 
                     legend = "none") +
@@ -864,19 +772,20 @@ rds_indiv_plot %>%
   scale_x_discrete(expand = c(0, 0)) +
   scale_fill_manual(values = rep(c("#5F90B0", "#D896C1"), 6)) +
   labs(y = "# IGHV nucleotide mutations",  x= "") +
-  stat_pvalue_manual(stat.test, label = "p.adj", y.position = 70) +
+  stat_pvalue_manual(stats, label = "p.adj", y.position = 70) +
+  stat_pvalue_manual(stats, label = "effsize", y.position = 60, remove.bracket = TRUE) +
   ggprism::theme_prism(base_fontface = "plain", border = T, base_line_size = .5, axis_text_angle = 45) +
   theme(axis.ticks = element_line(size = .5),
         legend.position = "none") 
 
-ggsave(paste0("../", result.dir, "rsv_specific_SHM_per_group.pdf"), width = 6, height = 3)
 ```
 
-### Plot somatic hypermutation over time summarized by animal
+### Mean SHM per animal (Fig. S4K)
 
-Here the SHM data is summarized per macaque, so each dot represents the average SHM of all the antigen-specific sequences for one animal.
+Here the SHM data is summarized per animal, so each dot represents the average SHM of all the antigen-specific sequences for each animal. As before, the two groups were compared against each other at each of two time points for three different specificities: Total F, preF, or preF/postF (DP). For this, a two-tailed Wilcoxon rank sum test (a.k.a. Mann-Whitney U test) was employed. This means a total of six (6) comparisons were made. To correct for these multiple comparisons, the false discovery rate correction by Benjamini & Hochberg (1995) was applied (alpha = 0.05). Also, the p-values and adjusted p-values for each comparison are listed in the table that follows.
 
 ```{r shm_per_animal}
+# The SHM arithmetic mean was calculated per animal and is provided within this repository
 rds_indiv_plot_summ <- rds_indiv_plot %>%
   filter(Group_specificity != "PostF") %>%
   group_by(ID, Group_specificity) %>%
@@ -884,6 +793,10 @@ rds_indiv_plot_summ <- rds_indiv_plot %>%
   ungroup() %>%
   tidyr::drop_na()
 
+write.csv(rds_indiv_plot_summ, 
+          paste0("../", result.dir, "antigen_specific_mean_shm_per_animal.csv"),row.names = FALSE)
+
+# The two-tailed Wilcoxon rank sum test with an FDR correction is run for the 6 comparisons specified earlier
 stat.test <- rds_indiv_plot_summ %>%
               wilcox_test(formula = avg_V_errors ~ Group_specificity, 
                           comparisons = my_comparisons, 
@@ -891,11 +804,14 @@ stat.test <- rds_indiv_plot_summ %>%
                           paired = FALSE) %>%
   add_xy_position()
 
+# The statistical analyses are printed as a table (shown below)
 stat.test %>%
+  select(-c(.y., y.position,	groups,	xmin,	xmax)) %>%
   kable %>%
   kable_styling("striped") %>% 
  scroll_box(height = "200px")
 
+# The data is plotted as a dot plot with corresponding adjusted p-values
 rds_indiv_plot_summ %>%
   ggpubr::ggdotplot(x = "Group_specificity", y = "avg_V_errors", fill = "Group_specificity", group = "Group_specificity", 
                     legend = "none") +
@@ -913,12 +829,6 @@ rds_indiv_plot_summ %>%
         legend.position = "none") 
 
 
-```
-
-# Take environment snapshot
-
-```{r env_snapshopt, eval = FALSE}
-renv::snapshot()
 ```
 
 # SessionInfo

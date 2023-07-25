@@ -41,11 +41,9 @@ options(stringsAsFactors = FALSE)
 
 # Abstract
 
-This `Rmarkdown` provides the analysis for the processed data in the paper entitled "Multivalent Antigen Display on Nanoparticles Diversifies B Cell Responses". It includes the B cell receptors analysis, plots, and generation of intermediate files for plotting using other programs. The processed files used here are AIRR-compliant datasets which can be downloaded from Zenodo (DOI: 00000000), they are either Human Respiratory Syncytial Virus-specific (RSV-specific) or the full bulk repertoire from the vaccinated non-human primates (*Macaca mulatta*).
+This `Rmarkdown` provides the analysis for the processed data in the paper entitled "Multivalent Antigen Display on Nanoparticles Diversifies B Cell Responses". It includes the B cell receptors analysis, plots, and generation of intermediate files for plotting using other programs. The processed files used here are AIRR-compliant datasets which can be downloaded from [Zenodo 7895251)](https://doi.org/10.5281/zenodo.7895251), they are either Human Respiratory Syncytial Virus-specific (RSV-specific) or the full bulk repertoire from the vaccinated non-human primates (*Macaca mulatta*).
 
 # Needed libraries
-
-Loaded libraries need to be present.
 
 ```{r libraries, message=FALSE}
 library(jsonlite)
@@ -68,7 +66,7 @@ set.seed(123)
 
 # Load data
 
-Some data used here is stored as `.rds` format, but it can also be found as `.tsv` at Zenodo (DOI: 000000000).
+The data used here is stored as `.rds` format or as a table (`.csv` or `.tsv`) and it can be found in the [Zenodo repository 7895251)](https://doi.org/10.5281/zenodo.7895251).
 
 ```{r load_rds}
 data_comp <- read.csv("../data/ELISA_comp/2023-03-06_normalized_plasma_compt.csv") %>%
@@ -119,7 +117,7 @@ The non-human primates plasma samples from this study were used for antibody com
 
 ## Multidimensional scaling (MDS)
 
-Multidimensional scaling aims to conserve distances between datapoints and/or samples from a set of variables. Thus, closer a point is to each other, closer their competition profile in this case. It is a good way to summarize in a 2D-space a large number of variables. The MDS input is a dissimilarity matrix, for this plot the input the matrix is based on cosine distance. Although the euclidean distance is the most used, we have decided to use the cosine distance here because the magnitude of responses are less important than the competition profile itself for us. Some NHPs were really good responders, thus having higher titers for all the competitions, thus euclidean distance would drive them far away from all the other NHPs because of their high antibody titer. Since cosine distance takes into account the distance as an angle rather than the value itself, it does not take into account the weight or the magnitude of the antibody titers.
+Multidimensional scaling aims to conserve distances between datapoints and/or samples from a set of variables. Thus, closer a point is to each other, closer their competition profile in this case. It is a good way to summarize in a 2D-space a large number of variables. The MDS input is a dissimilarity matrix, for this plot the input the matrix is based on cosine distance. Although the euclidean distance is the most used, we have decided to use the cosine distance here because the magnitude of responses are less important than the competition profile itself for us. Some NHPs were really good responders, thus euclidean distance would drive them far away from all the other NHPs because of their high antibody titer. Since cosine distance takes into account the distance as an angle rather than the value itself, it does not take into account the weight or the magnitude of the antibody titers.
 
 ```{r mds_processing}
 cosine_distance <- function(x) {
@@ -187,6 +185,10 @@ ggarrange(plot_list[[3]], plot_list[[4]], plot_list[[1]], plot_list[[2]], ncol =
 ```
 
 ## Competition titers as bar plots
+
+The code below generates bar plots to visualize the competition titers for epitopes on the PreF or PostF RSV antigen. The code starts by processing the data and categorizing the epitopes based on specific markers. It then defines various pairwise comparisons for statistical testing between different groups for each timepoint with `fdr` correction. Afterward, it performs a Wilcoxon rank-sum test and displays the results in a tabular format. Finally, the code creates a series of bar plots for each epitope, showing the competition titers at different timepoints, with data points represented as colored points, and a summary of the mean values indicated by crossbars. The plots are grouped based on the specific epitopes, providing an insightful visualization of the competition titer dynamics for different epitopes on the PreF antigen.
+
+The code focused solely on the statistical tests, analysis, and p-value correction can be seen on the `rsv_statistical_analysis.Rmd` or [rendered as a website here](https://rodrigarc.github.io/RSV-NP-repertoire/results/lab_book/rsv_statistical_analysis.html).
 
 ### Competition for epitopes on Pref
 
@@ -265,7 +267,7 @@ data_comp_longer %>%
 
 ```
 
-### Competition for epitopes on Pref
+### Competition for epitopes on Postf
 
 ```{r competition_bars_postf}
 
@@ -324,7 +326,7 @@ write.table(rep_seq_stat, "../data/processed_data/summary_sequencing_table.tsv",
 
 ## Processing clonotype datasets
 
-After merging the antigen-specific sequences and bulk sequencing, we run the the `clonotype module` from IgDiscover to assign clonotype grouping to each sequence. We have done that for both the individualized germline and the KIMDB database. Here we are reading those datasets
+After merging the antigen-specific sequences and bulk sequencing, we run the the `clonotype module` from IgDiscover to assign clonotype grouping to each sequence. We have done that for both the individualized germline and the KIMDB database. Here we are reading those datasets and doing wrangling the data in the required format.
 
 ```{r shm_avg_dbs_processing}
 
@@ -366,10 +368,10 @@ rds_merge <- rds_merge %>%
 
 ## Plot number of sequences per animal
 
-Plotting sequencing depth for each timepoint per animal. This indicates that the sequencing depth for Boost 1 was lower, thus for that reason all the analysis were normalized by sequencing depth to take that into account. 
+Plotting sequencing depth for each timepoint per animal. This indicates that the sequencing depth for Boost 1 was lower, thus for that reason all the analysis were normalized by sequencing depth to take that into account.
 
 ```{r sequencing_depth}
-# samples from BR2-B2 from E17 were merged with TR1-B2
+# samples from the biological replicates after boost 2 (BR2-B2) from E17 were merged with the technical replicates after boost 2 (TR1-B2)
 # this was done due to low sequencing depth for that animal and large expansion of uncharacterized clones 
 full_rep_indiv <- read.table("../data/processed_data/summary_sequencing_table.tsv", 
                              header = TRUE) %>%
@@ -407,6 +409,7 @@ full_rep_indiv %>%
   stat_pvalue_manual(stat.test %>% mutate(p.adj = round(p.adj, 4)), label = "p.adj") +
    ggprism::theme_prism(base_fontface = "plain", border = T, base_line_size = 1, axis_text_angle = 45, base_rect_size = 1.5)
 
+write.csv(full_rep_indiv, paste0("../", result.dir, "repertoire_depth.csv"), row.names = F)
 ggsave(paste0("../", result.dir, "repertoire_depth.pdf"), width = 5, height = 3)
 
 ```
@@ -488,7 +491,9 @@ rds_indiv <- rds_indiv %>%
 
 ```
 
-## Cumulative plots 
+## Cumulative area clone size plots
+
+generates cumulative area plots for clone sizes of 20-mer and 1-mer specificities, further divided by specificity groups (DP & PreF). The code starts by summarizing the clone sizes for each combination of "Group," "Timepoint," and "specificity_group" from the "rds_indiv" data. The specificity group "PostF" is filtered out for this plot. The data is then plotted using ggplot2 library to create area plots with the x-axis representing "Timepoint," the y-axis representing the cumulative "Clonal size", and the area filled based on "specificity_group" (DP & PreF). Each "Group" is presented as a facet, showing the cumulative growth of clone sizes for the specified specificities over different timepoints. The area plots offer a visual representation of how the clone sizes evolve over time, highlighting differences between the two specificity groups (DP & PreF) for both 20-mer and 1-mer clones.
 
 ### Clone size area plot (cumulative) of 20-mer and 1-mer, divided by specificity (DP & PreF)
 
@@ -534,6 +539,8 @@ rds_indiv %>%
 ```
 
 ## Correlation clone size per animal per database
+
+The provided code plots the clonal sizes from two databases, "KIMDB" and "Individualized", for different timepoints. It creates scatter plots with clonal sizes from the "Individualized" database on the x-axis and "KIMDB" database on the y-axis, allowing visual comparison and assessment of correlation. The dashed line with a slope of 1 and an intercept of 0 represents the ideal correlation line. The plots are grouped by timepoints, providing a concise visual understanding of the clonal size relationship between the two databases over time.
 
 ```{r correlation_clonotype}
 df_all <- data.frame()
@@ -592,6 +599,8 @@ ggsave(paste0("../", result.dir, "individualized_db_comparison.pdf"), width = 12
 
 ## IGHV-J pairing per database
 
+The presented R code analyzes IGHV-J pairing for two databases, "Individualized" and "KIMDB." The code preprocesses data from the "rds_summary" dataframe, extracting V and J gene calls, and calculating clonal size percentages for each V-J combination. It then creates a heatmap plot (plot_vj) with IGHV alleles on the x-axis and IGHJ alleles on the y-axis, using the fill color to represent the clonal size mean percentage for each V-J pairing. The heatmap is grouped by specificity groups ("Total," "PreF," and "DP") and clonotype type ("20-mer" and "1-mer") for each database, providing a compact visual comparison of the IGHV-J pairing distributions between the two databases.
+
 ```{r v_j_pairing}
 for(i in c("Individualized", "KIMDB")){
 rds_summary_noPV <- rds_summary %>%
@@ -603,17 +612,17 @@ rds_summary_noPV <- rds_summary %>%
          clonal_size_log = log10(clonal_size),
          Group = factor(Group, levels = c("20-mer", "1-mer")),
          specificity_group = factor(specificity_group, levels = c("Total", "PreF", "DP", "PostF"))) %>%
-  group_by(Group) %>%
+  group_by(ID) %>%
   mutate(clonal_size_perc = (clonal_size/sum(clonal_size)) * 100) %>%
   ungroup() %>% 
   group_by(Group, specificity_group, v_call, j_call) %>%
-  summarise(clonal_size_perc = sum(clonal_size_perc)) %>%
+  summarise(clonal_size_mean_perc = mean(clonal_size_perc), clonal_size_mean = mean(clonal_size)) %>%
   filter(specificity_group != "PostF") %>% droplevels()
 
 plot_vj <-  rds_summary_noPV %>%
-    ggplot(aes(x= v_call, y = j_call, fill = clonal_size_perc)) +
+    ggplot(aes(x= v_call, y = j_call, fill = clonal_size_mean_perc)) +
       geom_tile(color = "black") +
-      scale_fill_viridis_c(option = "viridis", direction = 1) +
+      scale_fill_viridis_c(option = "viridis", direction = 1, limits = c(0, 1.5), breaks = c(0,0.5, 1, 1.5)) +
       scale_y_discrete(position = "right") +
       ggprism::theme_prism(base_fontface = "plain", border = TRUE, base_line_size = 1) +
       coord_equal() +
@@ -636,6 +645,8 @@ ggsave(plot = plot_vj, filename = paste0("../",result.dir,i,"_IGHV-IGHJ_pairing-
 ```
 
 ## Count unique V-J pairs
+
+The provided R code counts and compares unique V-J pairing occurrences in the "Individualized" database. It preprocesses the data, calculates the number of unique V-J pairs for each group, and performs statistical tests. The results are visualized using a dot plot with mean values and p-value labels, enabling easy comparison of unique V-J pairing counts among different groups.
 
 ```{r count_unique}
 # groups to perform statistical comparisons
@@ -697,6 +708,8 @@ ggsave(paste0("../", result.dir, "v-j-pair_count.pdf"), width = 5, height = 3)
 
 ## VennDiagram of HV-HJ sharing
 
+The provided R code generates a Venn diagram to visualize the sharing of HV-HJ combinations between "20-mer" and "1-mer" clonotypes in the "Individualized" database. The code preprocesses the data from the "rds_summary" dataframe, filtering out "PostF" specificity and organizing the data based on "Group" (clonotype type). It then creates two lists, one for "20-mer" and another for "1-mer" clonotypes, containing distinct HV-HJ combinations for each group. The Venn diagram is plotted using ggVennDiagram, representing the shared and unique HV-HJ combinations between the two clonotype types. The diagram provides a concise visual understanding of the overlap and differences in HV-HJ pairing between "20-mer" and "1-mer" clonotypes in the "Individualized" database.
+
 ```{r ven_diagram}
 
 rds_summary_noPV <- rds_summary %>%
@@ -724,6 +737,7 @@ ggVennDiagram::ggVennDiagram(list_v_j, label_size = 7,
 ggsave(paste0("../", result.dir,"shared-unique-v-j_pairing.pdf"), height = 5, width = 5)
 
 ```
+
 # Generate processed files for diversity index estimation
 
 Intermediate files are commented out, so it will not save all of them. One could uncomment them if all the intermediate files are needed. Intermediate files were used to run `Recon (v2.5)` (Kaplinsky & Arnaout, *Nat Commmun*, 2016) according to default parameters, more about running Recon is described in the next section [Recon estimates for RSV-specific diversity].
@@ -877,7 +891,7 @@ change_names <- function(x) {
 
 ### Chao1 plotting between groups for RSV-specific diversity
 
-Here is the plotting and comparison between vaccinated group:
+Here is the plot and comparison between the vaccinated groups:
 
 ```{r plot_chao1}
 chao_results_df$Specificity[chao_results_df$Specificity == "total"] <- "Total"
@@ -1018,7 +1032,6 @@ recon_res %>%
 ggsave(paste0("../", result.dir, "recon_species_richness.pdf"), width = 5, height = 3)
 ```
 
-
 ## Somatic hypermutation comparisons
 
 ### Somatic hypermutation over time for individualized database
@@ -1026,16 +1039,16 @@ ggsave(paste0("../", result.dir, "recon_species_richness.pdf"), width = 5, heigh
 Here the SHM is shown for all the sequences for every animal combined. Data is divided by 20-mer, 1-mer, and specificities. T
 
 ```{r SHM_group}
-rds_indiv_total <- rds_indiv %>%
-  mutate(specificity_group = "Total")
+rds_indiv_total <- rds_merge %>%
+  mutate(specificity_group = "Total") 
 
-rds_indiv <- rbind(rds_indiv, rds_indiv_total)
+rds_indiv_plot <- rbind(rds_merge, rds_indiv_total)
 
 
-rds_indiv_plot <- rds_indiv %>%
+rds_indiv_plot <- rds_indiv_plot %>%
   filter(specificity_group != "PostF") %>%
   mutate(Group_specificity = paste(specificity_group, Timepoint, Group, sep = "_")) %>%
-  mutate(Group_specificity = factor(Group_specificity, levels = c("Total_B1_20-mer", "Total_B1_1-mer", "Total_B2_20-mer", "Total_B2_1-mer", "PreF_B1_20-mer", "PreF_B1_1-mer", "PreF_B2_20-mer", "PreF_B2_1-mer", "DP_B1_20-mer", "DP_B1_1-mer", "DP_B2_20-mer", "DP_B2_1-mer"))) %>% ungroup() 
+  mutate(Group_specificity = factor(Group_specificity, levels = c("Total_B1_20-mer", "Total_B1_1-mer", "Total_B2_20-mer", "Total_B2_1-mer", "PreF_B1_20-mer", "PreF_B1_1-mer", "PreF_B2_20-mer", "PreF_B2_1-mer", "DP_B1_20-mer", "DP_B1_1-mer", "DP_B2_20-mer", "DP_B2_1-mer"))) %>% ungroup() %>% drop_na(Group_specificity)
 
 stat.test <- rds_indiv_plot %>%
               wilcox_test(formula = V_errors ~ Group_specificity, 
@@ -1049,6 +1062,8 @@ stat.test %>%
   kable_styling("striped") %>% 
  scroll_box(height = "200px")
 
+counts <- rds_indiv_plot %>% group_by(Group, specificity_group) %>% summarise(counts = n())
+
 rds_indiv_plot %>%
   ggpubr::ggviolin(x = "Group_specificity", y = "V_errors", fill = "Group_specificity", group = "Group_specificity", 
                     legend = "none") +
@@ -1059,7 +1074,7 @@ rds_indiv_plot %>%
   scale_x_discrete(expand = c(0, 0)) +
   scale_fill_manual(values = rep(c("#5F90B0", "#D896C1"), 6)) +
   labs(y = "# IGHV nucleotide mutations",  x= "") +
-  stat_pvalue_manual(stat.test, label = "p.adj", y.position = 70) +
+#  stat_pvalue_manual(stat.test, label = "p.adj", y.position = 70) +
   ggprism::theme_prism(base_fontface = "plain", border = T, base_line_size = .5, axis_text_angle = 45) +
   theme(axis.ticks = element_line(size = .5),
         legend.position = "none") 
@@ -1075,7 +1090,9 @@ Here the SHM data is summarized per macaque, so each dot represents the average 
 rds_indiv_plot_summ <- rds_indiv_plot %>%
   filter(Group_specificity != "PostF") %>%
   group_by(ID, Group_specificity) %>%
-  summarise(avg_V_errors = mean(V_errors, na.rm = TRUE)) %>%
+  summarise(avg_V_errors = mean(V_errors, na.rm = TRUE),
+            sd_V_errors = sd(V_errors, na.rm = TRUE),
+            n = n()) %>%
   ungroup() %>%
   tidyr::drop_na()
 
@@ -1090,6 +1107,8 @@ stat.test %>%
   kable %>%
   kable_styling("striped") %>% 
  scroll_box(height = "200px")
+
+counts <- rds_indiv_plot_summ %>% group_by(Group_specificity) %>% summarise(max_n = max(n), min_n = min(n), total_n = sum(n))
 
 rds_indiv_plot_summ %>%
   ggpubr::ggdotplot(x = "Group_specificity", y = "avg_V_errors", fill = "Group_specificity", group = "Group_specificity", 
@@ -1107,20 +1126,27 @@ rds_indiv_plot_summ %>%
   theme(axis.ticks = element_line(size = .5),
         legend.position = "none") 
 
+write.csv(rds_indiv_plot_summ, paste0("../", result.dir, "rsv_specific_mean_SHM_per_animal.csv"), row.names = FALSE)
 
+ggsave(paste0("../", result.dir, "rsv_specific_mean_SHM_per_animal.pdf"), width = 6, height = 3)
 ```
 
 ## Plot HCDR3 length over time for individualized database divided by 20-mer and 1-mer, and specificities
 
 ```{r cdr3_group}
-
-rds_indiv %>%
+rds_indiv_hcdr3 <- rds_indiv %>%
+ # filter(database == "Individualized", Timepoint == c("B1", "B2")) %>%
+  rbind(., within(., specificity_group <- "Total")) %>%
   filter(specificity_group != "PostF") %>%
   mutate(
     Group_specificity = paste(Group, specificity_group, sep = "_"),
     specificity_group = factor(specificity_group, levels = c("Total", "PreF", "DP")),
     Timepoint = factor(Timepoint, levels = c("B1", "B2"))
-  ) %>%
+  ) %>% drop_na()
+  
+counts <- rds_indiv_hcdr3 %>% group_by(specificity_group, Timepoint, Group) %>% summarise(N=paste0('n = ',n()))
+counts
+rds_indiv_hcdr3 %>%
   ggplot(aes(x = cdr3_aa_length, fill = Group)) +
   geom_density(alpha = .7) +
   scale_y_continuous(expand = c(0, 0)) +
@@ -1129,7 +1155,9 @@ rds_indiv %>%
   labs(y = "Density", x = "HCDR3 aa length") +
   ggprism::theme_prism(base_fontface = "plain", border = TRUE, base_line_size = 1) +
   theme(axis.ticks = element_line(size = .5)) +
-  facet_wrap(~ specificity_group + Timepoint, ncol = 3, dir = "v")
+ # geom_text(data = counts, aes(label = N, fill = NA), x = Inf, y = Inf, hjust = 1, vjust = 1, size = 4, color = "black") +
+  facet_wrap(~ specificity_group + Timepoint, ncol = 3, dir = "v") 
+
 
 ggsave(paste0("../", result.dir, "rsv_specific_CDR3_length.pdf"), width = 6, height = 3)
 ```
@@ -1227,7 +1255,7 @@ kimdb_v_indiv %>%
 ggsave(paste0("../", result.dir, "indiv_validated_KIMDB_alleles.pdf"), width = 8, height = 6.38)
 ```
 
-# Phylogenetic tree LOR21 and LOR24
+# Phylogenetic tree LOR21 and LOR24 monoclonal antibodies
 
 ## Processing data
 
@@ -1252,7 +1280,9 @@ LJ_genes <- readDNAStringSet("../data/databases/cirelli_LC/J.fasta")
 
 ```
 
-## Generating fasta files for tree plotting
+## Generate fasta files for tree plotting
+
+Select all the sequences that are part of the same clonotypes from the mAbs of interest, in this case LOR21, LOR24, and LOR74.The selected sequences were saved as fasta for further multiple sequence alignment and phylogenetic tree inference.
 
 ## Heavy chain
 
@@ -1417,7 +1447,7 @@ for(i in seq_along(plots)){
   plot_name <- names(plots)[i]
   
   plots_edit <- plots[[i]]$data %>%
-    mutate(new_label = ifelse(grepl("sc_|LOR",label), gsub("sc_", "",label), ""),
+    mutate(new_label = ifelse(grepl("sc_|LOR|E11_TR1-B2-igg_M05494_64_000000000-CRY9F_1_2115_14487_10780",label), gsub("sc_", "",label), ""),
            new_label = plyr::mapvalues(new_label,from = lor_mabs$well_ID, to = lor_mabs$LOR,
                                        warn_missing = FALSE),
            new_label = ifelse(grepl("LOR",new_label), new_label, ""),
@@ -1452,7 +1482,7 @@ for(i in seq_along(plots)){
 
   print(gg_plot)
   
-   ggsave(gg_plot, filename = paste0("../", result.dir,  names(ls)[[i]], "_tree.pdf"), width = ifelse(grepl("LC", plot_name), 3, 4), height = ifelse(grepl("LC", plot_name), 3, 6))
+   ggsave(gg_plot, filename = paste0("../", result.dir,  names(ls)[[i]], "_tree.pdf"), width = ifelse(grepl("LC", plot_name), 2, 4), height = ifelse(grepl("LC", plot_name), 2, 6))
   }
 
 ```
@@ -1620,7 +1650,6 @@ plotly::ggplotly(p2)
 
 ggsave(plot = p2, width = 5, height = 3,filename = paste0("../", result.dir, "mds_euclidean-distance-neuts.pdf"))
 ```
-
 
 ## Processing and merging LOR metadata
 
